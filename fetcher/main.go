@@ -1,6 +1,7 @@
 package main
 
 import "crypto/sha256"
+import "crypto/tls"
 import "fmt"
 import "io"
 import "log"
@@ -15,11 +16,17 @@ import _ "github.com/mattn/go-sqlite3"
 //import "database/sql"
 import "github.com/jmoiron/sqlx"
 
+// Configuration
+import "github.com/knadh/koanf"
+import "github.com/knadh/koanf/parsers/yaml"
+import "github.com/knadh/koanf/providers/file"
+
 // Debugging
-import "github.com/davecgh/go-spew/spew"
+//import "github.com/davecgh/go-spew/spew"
 
 // Global variables
 var database *sqlx.DB
+var k = koanf.New(".")
 
 type FeedStatus struct {
 	Id		int64
@@ -34,17 +41,24 @@ type FeedStatus struct {
 }
 
 func main () {
-	spew.Dump()
-	interval := 10 * time.Minute
+        // Parse configuration
+        k.Load(file.Provider("./fetcher.yaml"), yaml.Parser())
+        k.Load(file.Provider(os.Getenv("HOME")+"/etc/rssmix/fetcher.yaml"), yaml.Parser())
+        k.Load(file.Provider("/etc/rssmix/fetcher.yaml"), yaml.Parser())
 
-	var storedir string
-	if len(os.Args) < 2 {
-		log.Fatal("Please provide directory\n")
-	}
-	storedir = os.Args[1]
+	// Set TLS verification flag
+	http.DefaultTransport.(*http.Transport).TLSClientConfig = &tls.Config{InsecureSkipVerify: k.Bool("tls.insecure")}
+
+	// Refresh interval
+	interval := time.Duration(value_or_default(k.Int("interval"), 10).(int)) * time.Minute
+
+	// Output directory
+	storedir := value_or_default(k.String("workdir"), os.Getenv("HOME")).(string)
+	log.Printf("Storing data in %s\n", storedir)
 
         var dberr error
-        database, dberr = sqlx.Open("sqlite3", "rssmix.sql")
+        database, dberr = sqlx.Open(value_or_default(k.String("database.type"), "sqlite3").(string),
+				    value_or_default(k.String("database.url"), "rssmix.sql").(string))
         if dberr != nil { log.Fatal(dberr) }
 
 	for {
@@ -60,7 +74,12 @@ func main () {
 func refresh_feeds (storedir string) {
 	var feeds []int64
 	rows, qerr := database.Query("SELECT id FROM feed")
-	if qerr == nil { defer rows.Close() }
+	if qerr != nil {
+		// Log error and exit func to try again on next loop
+		log.Println(qerr)
+		return
+	}
+	defer rows.Close()
 	for rows.Next() {
 		var feedid int64
 		scanerr := rows.Scan(&feedid)
@@ -156,6 +175,7 @@ func refresh_feeds (storedir string) {
 	}
 }
 
+// FIXME: The following three are generic functions which should be in lib/
 func sha256sum (s string) (string) {
 	return fmt.Sprintf("%x", sha256.Sum256([]byte(s)))
 }
@@ -200,4 +220,18 @@ func download_feed (nc *http.Client, feedid int64, url string, file string) (boo
 	}
 
 	return true, bytes
+}
+
+// FIXME: duplicate function
+func value_or_default (value interface{}, def interface{}) (interface{}) {
+	switch value.(type) {
+	case string:
+		if value.(string) != "" { return value.(string) }
+		return def.(string)
+	case int:
+		if value.(int) != 0 { return value.(int) }
+		return def.(int)
+	}
+
+	return nil
 }
