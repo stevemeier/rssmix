@@ -1,11 +1,7 @@
 package main
 
 // DB layout
-// CREATE TABLE compilation (id string primary key unique, password string, name string, filename string);
-// CREATE TABLE content (id string not null, feed_id integer);
-// CREATE TABLE feed_status (id integer unique, refreshed int, updated int, active int);
-// CREATE TABLE feed (id integer primary key, schema string, urn string, created int, filename string);
-// CREATE TABLE compilation_status (id string, updated int);
+// see `sql/` folder
 
 // POST /compilation
 // Create new compilation
@@ -332,7 +328,7 @@ func http_handler_get_compilation (ctx *fasthttp.RequestCtx) {
 	var thiscpl Compilation
 	database.QueryRow("SELECT id, name FROM compilation WHERE id = ?", cplid).Scan(&thiscpl.Id, &thiscpl.Name)
 
-	rows, qerr := database.Query(`SELECT feed.schema, feed.urn FROM feed
+	rows, qerr := database.Query(`SELECT feed.uschema, feed.urn FROM feed
 				      INNER JOIN compilation_content ON feed.id=content.feed_id
 				      WHERE compilation_content.id = ?`, cplid)
 	if qerr != nil {
@@ -376,7 +372,7 @@ func add_feed_to_catalogue (s string) (bool, int64, error) {
 		return false, -1, err
 	}
 
-	_, dberr := database.Exec("INSERT INTO feed (schema, urn, created, active) VALUES (?,?,?,1)",
+	_, dberr := database.Exec("INSERT INTO feed (uschema, urn, created, active) VALUES (?,?,?,1)",
 					strings.ToLower(url.Scheme),
 					strings.ToLower(url.Host)+url.Path,
 					time.Now().Unix())
@@ -397,7 +393,7 @@ func url_in_catalogue (s string) (bool, int64) {
 	}
 
 	var feedid int64
-	scanerr := database.QueryRow("SELECT id FROM feed WHERE schema = ? AND urn = ?",
+	scanerr := database.QueryRow("SELECT id FROM feed WHERE uschema = ? AND urn = ?",
 					strings.ToLower(url.Scheme),
 					strings.ToLower(url.Host)+url.Path).Scan(&feedid)
 

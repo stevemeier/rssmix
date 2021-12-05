@@ -87,7 +87,7 @@ func refresh_feeds (storedir string) {
 
 		// Get feed details
 		database.QueryRow("SELECT refreshed, updated FROM feed_status WHERE id = ?", feedid).Scan(&fstatus.Refreshed, &fstatus.Updated)
-		database.QueryRow("SELECT schema, urn FROM feed WHERE id = ?", feedid).Scan(&fstatus.Schema, &fstatus.URN)
+		database.QueryRow("SELECT uschema, urn FROM feed WHERE id = ?", feedid).Scan(&fstatus.Schema, &fstatus.URN)
 		fstatus.URL= fstatus.Schema+"://"+fstatus.URN
 		fstatus.URLHash = sha256sum(fstatus.URL)
 		fstatus.File = storedir+"/"+subdirs(fstatus.URLHash, 3)
