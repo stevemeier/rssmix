@@ -12,11 +12,24 @@ import "github.com/gorilla/feeds"
 import _ "github.com/mattn/go-sqlite3"
 import "github.com/jmoiron/sqlx"
 
+// Configuration
+import "github.com/knadh/koanf"
+import "github.com/knadh/koanf/parsers/yaml"
+import "github.com/knadh/koanf/providers/file"
+
 var database *sqlx.DB
+var k = koanf.New(".")
 
 func main() {
+        // Parse configuration
+        k.Load(file.Provider("./compiler.yaml"), yaml.Parser())
+        k.Load(file.Provider(os.Getenv("HOME")+"/etc/rssmix/compiler.yaml"), yaml.Parser())
+        k.Load(file.Provider("/etc/rssmix/compiler.yaml"), yaml.Parser())
+
+	// Database connection
 	var dberr error
-	database, dberr = sqlx.Open("sqlite3", "rssmix.sql")
+        database, dberr = sqlx.Open(value_or_default(k.String("database.type"), "sqlite3").(string),
+                                    value_or_default(k.String("database.url"), "rssmix.sql").(string))
 	if dberr != nil { log.Fatal(dberr) }
 
 	for {
@@ -55,25 +68,23 @@ func update_compilation (cplid string) (bool, error) {
 	output.Title = title
 	output.Created = time.Now()
 	output.Link = &feeds.Link{Href: "rssmix.eu/foo"} // this is required
-//		Title: "Best of WRINT",
-//		Link: &feeds.Link{Href: "rssmix.eu/foo"},
-//		Description: "My first feed",
-//		Author: &feeds.Author{
-//			Name: "Steve Meier",
-//			Email: "noreply@rssmix.eu",
-//		},
-//		Created: time.Now(),
-//	}
 
 	var files []string
 	rows, ferr := database.Query(`SELECT feed.filename FROM feed
 				      INNER JOIN compilation_content ON content.feed_id = feed.id
 				      WHERE compilation_content.id = ?`, cplid)
-	if ferr != nil { log.Println(ferr) }
+	if ferr != nil {
+		log.Println(ferr)
+		return false, ferr
+	}
+
 	for rows.Next() {
 		var nextfile string
 		scanerr := rows.Scan(&nextfile)
-		if scanerr != nil { log.Println(scanerr) }
+		if scanerr != nil {
+			log.Println(scanerr)
+			return false, scanerr
+		}
 
 		if nextfile != "" {
 			files = append(files, nextfile)
@@ -95,7 +106,13 @@ func update_compilation (cplid string) (bool, error) {
 	// Sort by time
 	sort.Slice(output.Items, func(i, j int) bool { return (output.Items[i].Created).After((output.Items[j].Created)) })
 
+	// Limit to most recent
+	if k.Int("items.max") > 0 {
+		output.Items = output.Items[:k.Int("items.max")]
+	}
+
 	// Output
+	log.Printf("[%s] Writing to %s\n", cplid, outfile)
 	ofh, oferr := os.OpenFile(outfile, os.O_RDWR|os.O_CREATE, 0644)
 	if oferr != nil {
 		log.Println(oferr)
@@ -103,8 +120,9 @@ func update_compilation (cplid string) (bool, error) {
 	}
 	defer ofh.Close()
 
-	log.Printf("[%s] Writing to %s\n", cplid, outfile)
 	werr := output.WriteRss(ofh)
+	if werr != nil { log.Println(werr) }
+
 	return werr == nil, werr
 }
 
@@ -175,4 +193,18 @@ func compilations_needing_update () ([]string) {
 func mark_compilation_updated (cplid string) (bool, error) {
 	_, dberr := database.Exec("UPDATE compilation_status SET updated = ? WHERE id = ?", time.Now().Unix(), cplid)
 	return dberr == nil, dberr
+}
+
+// FIXME: This is a duplicate, needs to go to lib/
+func value_or_default (value interface{}, def interface{}) (interface{}) {
+        switch value.(type) {
+        case string:
+                if value.(string) != "" { return value.(string) }
+                return def.(string)
+        case int:
+                if value.(int) != 0 { return value.(int) }
+                return def.(int)
+        }
+
+        return nil
 }
