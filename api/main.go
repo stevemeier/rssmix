@@ -94,7 +94,7 @@ func http_handler_cleanup_feed (ctx *fasthttp.RequestCtx) {
 	var after int64
 	database.QueryRow("SELECT COUNT(*) FROM feed").Scan(&before)
 	tx, _ := database.Begin()
-	tx.Exec("DELETE FROM feed WHERE id NOT IN (SELECT feed_id FROM content)")
+	tx.Exec("DELETE FROM feed WHERE id NOT IN (SELECT feed_id FROM compilation_content)")
 	commiterr := tx.Commit()
 	if commiterr != nil {
 		log.Println(commiterr)
@@ -165,7 +165,7 @@ func http_handler_update_compilation (ctx *fasthttp.RequestCtx) {
 			if !exists {
 				_, feedid, _ = add_feed_to_catalogue(url)
 			}
-			tx.Exec("INSERT INTO content (id, feed_id) VALUES (?, ?)", cplid, feedid)
+			tx.Exec("INSERT INTO compilation_content (id, feed_id) VALUES (?, ?)", cplid, feedid)
 		}
 	}
 	if len(changes.Delete) > 0 {
@@ -175,7 +175,7 @@ func http_handler_update_compilation (ctx *fasthttp.RequestCtx) {
 			var feedid int64
 			exists, feedid = url_in_catalogue(url)
 			if exists {
-				tx.Exec("DELETE FROM content WHERE id = ? AND feed_id = ?", cplid, feedid)
+				tx.Exec("DELETE FROM compilation_content WHERE id = ? AND feed_id = ?", cplid, feedid)
 			}
 		}
 	}
@@ -228,7 +228,7 @@ func http_handler_delete_compilation (ctx *fasthttp.RequestCtx) {
 		ctx.SetStatusCode(fasthttp.StatusInternalServerError)
 		return
 	}
-	tx.Exec("DELETE FROM content WHERE id = ?", cplid)
+	tx.Exec("DELETE FROM compilation_content WHERE id = ?", cplid)
 	tx.Exec("DELETE FROM compilation WHERE id = ?", cplid)
 	commiterr := tx.Commit()
 	if commiterr != nil {
@@ -286,7 +286,7 @@ func http_handler_new_compilation (ctx *fasthttp.RequestCtx) {
 
 	tx.Exec("INSERT INTO compilation (id, password, name) VALUES (?, ?, ?)", cplid, newcpl.Password, maxlen(newcpl.Name, 127))
 	for _, value := range url2feedid {
-		tx.Exec("INSERT INTO content (id, feed_id) VALUES (?, ?)", cplid, value)
+		tx.Exec("INSERT INTO compilation_content (id, feed_id) VALUES (?, ?)", cplid, value)
 	}
 
 	commiterr := tx.Commit()
@@ -332,7 +332,9 @@ func http_handler_get_compilation (ctx *fasthttp.RequestCtx) {
 	var thiscpl Compilation
 	database.QueryRow("SELECT id, name FROM compilation WHERE id = ?", cplid).Scan(&thiscpl.Id, &thiscpl.Name)
 
-	rows, qerr := database.Query("SELECT feed.schema, feed.urn FROM feed INNER JOIN content ON feed.id=content.feed_id WHERE content.id = ?", cplid)
+	rows, qerr := database.Query(`SELECT feed.schema, feed.urn FROM feed
+				      INNER JOIN compilation_content ON feed.id=content.feed_id
+				      WHERE compilation_content.id = ?`, cplid)
 	if qerr != nil {
 		log.Println(qerr)
 		ctx.SetStatusCode(fasthttp.StatusInternalServerError)

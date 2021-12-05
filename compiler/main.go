@@ -67,8 +67,8 @@ func update_compilation (cplid string) (bool, error) {
 
 	var files []string
 	rows, ferr := database.Query(`SELECT feed.filename FROM feed
-				      INNER JOIN content ON content.feed_id = feed.id
-				      WHERE content.id = ?`, cplid)
+				      INNER JOIN compilation_content ON content.feed_id = feed.id
+				      WHERE compilation_content.id = ?`, cplid)
 	if ferr != nil { log.Println(ferr) }
 	for rows.Next() {
 		var nextfile string
@@ -151,7 +151,7 @@ func compilations_needing_update () ([]string) {
 	var result []string
 
 	rows, qerr := database.Query(`SELECT DISTINCT(compilation.id) FROM compilation 
-				      LEFT JOIN content ON compilation.id = content.id 
+				      LEFT JOIN compilation_content ON compilation.id = compilation_content.id 
 				      LEFT JOIN compilation_status ON compilation_status.id = compilation.id 
 				      LEFT JOIN feed_status ON feed_status.id = content.feed_id
 				      WHERE feed_status.updated > compilation_status.updated`)
