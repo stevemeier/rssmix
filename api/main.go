@@ -24,6 +24,7 @@ import "encoding/json"
 import "log"
 import "math/rand"
 import "net/url"
+import "os"
 import "strings"
 import "time"
 
@@ -39,8 +40,16 @@ import "github.com/valyala/fasthttp"
 // HTTP routing
 import "github.com/fasthttp/router"
 
+// Configuration
+import "github.com/knadh/koanf"
+import "github.com/knadh/koanf/parsers/yaml"
+import "github.com/knadh/koanf/providers/file"
+
+// Library
+//import lib "github.com/stevemeier/rssmix/lib"
+
 // Debugging
-import "github.com/davecgh/go-spew/spew"
+//import "github.com/davecgh/go-spew/spew"
 
 // Structs
 type Compilation struct {
@@ -65,9 +74,15 @@ type Changeset struct {
 
 // Global variables
 var database *sqlx.DB
+var k = koanf.New(".")
 
 func main () {
-	spew.Dump()
+	// Parse configuration
+	k.Load(file.Provider("./api.yaml"), yaml.Parser())
+	k.Load(file.Provider(os.Getenv("HOME")+"/etc/rssmix/api.yaml"), yaml.Parser())
+	k.Load(file.Provider("/etc/rssmix/api.yaml"), yaml.Parser())
+
+	// Set up HTTP routes
 	routes := router.New()
 	routes.POST("/v1/compilation", http_handler_new_compilation)
 	routes.GET("/v1/compilation/{id}", http_handler_get_compilation)
@@ -77,11 +92,14 @@ func main () {
 
 	log.Println("Opening database")
 	var dberr error
-	database, dberr = sqlx.Open("sqlite3", "rssmix.sql")
+	database, dberr = sqlx.Open(value_or_default(k.String("database.type"), "sqlite3").(string),
+				    value_or_default(k.String("database.url"), "rssmix.sql").(string))
 	if dberr != nil { log.Fatal(dberr) }
 
 	log.Println("Starting HTTP server")
-	listener, _ := reuseport.Listen("tcp4", "0.0.0.0:8888")
+	listener, lsterr := reuseport.Listen(value_or_default(k.String("listen.protocol"), "tcp4").(string),
+					     value_or_default(k.String("listen.address"), "127.0.0.1:8888").(string))
+	if lsterr != nil { log.Fatal(lsterr) }
 	fasthttp.Serve(listener, routes.Handler)
 }
 
@@ -426,9 +444,20 @@ func generate_id (length int) (string) {
 	return strings.Join(result, "")
 }
 
+// FIXME: These are generic functions which should go in lib/
 func maxlen (s string, n int) string {
 	if len(s) > n {
 		return s[:n]
 	}
 	return s
+}
+
+func value_or_default (value interface{}, def interface{}) (interface{}) {
+	switch value.(type) {
+	case string:
+		if value.(string) != "" { return value.(string) }
+		return def.(string)
+	}
+
+	return nil
 }
