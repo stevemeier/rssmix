@@ -1,0 +1,178 @@
+package main
+
+import "log"
+import "os"
+import "sort"
+import "time"
+
+import "github.com/mmcdole/gofeed"
+import "github.com/gorilla/feeds"
+
+// SQL modules
+import _ "github.com/mattn/go-sqlite3"
+import "github.com/jmoiron/sqlx"
+
+var database *sqlx.DB
+
+func main() {
+	var dberr error
+	database, dberr = sqlx.Open("sqlite3", "rssmix.sql")
+	if dberr != nil { log.Fatal(dberr) }
+
+	for {
+		queue := compilations_needing_update()
+
+		if len(queue) == 0 {
+			log.Println("No compilations need updating right now")
+			time.Sleep(10 * time.Second)
+		}
+
+		for _, cplid := range queue {
+			updsuccess, _ := update_compilation(cplid)
+			if updsuccess {
+				mark_compilation_updated(cplid)
+			}
+		}
+	}
+}
+
+func update_compilation (cplid string) (bool, error) {
+	log.Printf("[%s] Updating compilation\n", cplid)
+
+	fp := gofeed.NewParser()
+
+	// Get feed parameters from DB
+	var title string
+	var outfile string
+	qrerr := database.QueryRow("SELECT name, filename FROM compilation WHERE id = ?", cplid).Scan(&title, &outfile)
+	if qrerr != nil {
+		log.Println(qrerr)
+		return false, qrerr
+	}
+
+	// Create feed object
+	output := &feeds.Feed{}
+	output.Title = title
+	output.Created = time.Now()
+	output.Link = &feeds.Link{Href: "rssmix.eu/foo"} // this is required
+//		Title: "Best of WRINT",
+//		Link: &feeds.Link{Href: "rssmix.eu/foo"},
+//		Description: "My first feed",
+//		Author: &feeds.Author{
+//			Name: "Steve Meier",
+//			Email: "noreply@rssmix.eu",
+//		},
+//		Created: time.Now(),
+//	}
+
+	var files []string
+	rows, ferr := database.Query(`SELECT feed.filename FROM feed
+				      INNER JOIN content ON content.feed_id = feed.id
+				      WHERE content.id = ?`, cplid)
+	if ferr != nil { log.Println(ferr) }
+	for rows.Next() {
+		var nextfile string
+		scanerr := rows.Scan(&nextfile)
+		if scanerr != nil { log.Println(scanerr) }
+
+		if nextfile != "" {
+			files = append(files, nextfile)
+		}
+	}
+
+	for _, file := range files {
+		log.Printf("[%s] Parsing %s\n", cplid, file)
+		reader, openerr := os.Open(file)
+		input, parseerr := fp.Parse(reader)
+		if openerr != nil || parseerr != nil { continue }
+
+	        for _, item := range input.Items {
+			nextitem := transform_item(item)
+			output.Items = append(output.Items, &nextitem)
+		}
+	}
+
+	// Sort by time
+	sort.Slice(output.Items, func(i, j int) bool { return (output.Items[i].Created).After((output.Items[j].Created)) })
+
+	// Output
+	ofh, oferr := os.OpenFile(outfile, os.O_RDWR|os.O_CREATE, 0644)
+	if oferr != nil {
+		log.Println(oferr)
+		return false, oferr
+	}
+	defer ofh.Close()
+
+	log.Printf("[%s] Writing to %s\n", cplid, outfile)
+	werr := output.WriteRss(ofh)
+	return werr == nil, werr
+}
+
+func transform_item (in *gofeed.Item) (feeds.Item) {
+	// In the initial object, we only set "safe" strings
+	out := feeds.Item{Title: in.Title,
+                          Description: in.Description,
+		          Id: in.GUID,
+		          Content: in.Content}
+
+	// Updated field is not always set
+	updated := in.UpdatedParsed
+	if updated != nil { out.Updated = *updated }
+
+	// PubDate is also not always set
+	pubdate := in.PublishedParsed
+	if pubdate != nil { out.Created = *pubdate }
+
+	// Author
+	if len(in.Authors) >= 1 {
+		author := &feeds.Author{Name: in.Authors[0].Name,
+				        Email: in.Authors[0].Email}
+		out.Author = author
+	}
+
+	// Link
+	if len(in.Link) > 0 {
+		out.Link = &feeds.Link{Href: in.Link}
+	}
+
+	// Podcasts have enclosures, but not all feeds
+	if len(in.Enclosures) >= 1 {
+		encl := &feeds.Enclosure{Url: in.Enclosures[0].URL,
+				       Length: in.Enclosures[0].Length,
+				       Type: in.Enclosures[0].Type }
+
+		out.Enclosure = encl
+	}
+
+	return out
+}
+
+func compilations_needing_update () ([]string) {
+	var result []string
+
+	rows, qerr := database.Query(`SELECT DISTINCT(compilation.id) FROM compilation 
+				      LEFT JOIN content ON compilation.id = content.id 
+				      LEFT JOIN compilation_status ON compilation_status.id = compilation.id 
+				      LEFT JOIN feed_status ON feed_status.id = content.feed_id
+				      WHERE feed_status.updated > compilation_status.updated`)
+
+	if qerr != nil {
+		log.Println(qerr)
+		return result
+	}
+
+	for rows.Next() {
+		var cplid string
+		scanerr := rows.Scan(&cplid)
+		if scanerr != nil { log.Println(scanerr) }
+
+		result = append(result, cplid)
+	}
+
+	return result
+}
+
+func mark_compilation_updated (cplid string) (bool, error) {
+	_, dberr := database.Exec("UPDATE compilation_status SET updated = ? WHERE id = ?", time.Now().Unix(), cplid)
+	return dberr == nil, dberr
+}
