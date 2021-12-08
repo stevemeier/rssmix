@@ -104,6 +104,7 @@ func main () {
 	listener, lsterr := reuseport.Listen(value_or_default(k.String("listen.protocol"), "tcp4").(string),
 					     value_or_default(k.String("listen.address"), "127.0.0.1:8888").(string))
 	if lsterr != nil { log.Fatal(lsterr) }
+	log.Printf("Listening on %s\n", listener.Addr().String())
 	fasthttp.Serve(listener, routes.Handler)
 }
 
