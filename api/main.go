@@ -45,6 +45,9 @@ import "github.com/knadh/koanf"
 import "github.com/knadh/koanf/parsers/yaml"
 import "github.com/knadh/koanf/providers/file"
 
+// MemStats
+import "runtime"
+
 // Library
 //import lib "github.com/stevemeier/rssmix/lib"
 
@@ -89,6 +92,7 @@ func main () {
 	routes.DELETE("/v1/compilation/{id}", http_handler_delete_compilation)
 	routes.PATCH("/v1/compilation/{id}", http_handler_update_compilation)
 	routes.POST("/v1/admin/cleanup_feed", http_handler_cleanup_feed)
+	routes.GET("/v1/admin/memstats", http_handler_get_memstats)
 
 	log.Println("Opening database")
 	var dberr error
@@ -457,7 +461,24 @@ func value_or_default (value interface{}, def interface{}) (interface{}) {
 	case string:
 		if value.(string) != "" { return value.(string) }
 		return def.(string)
+	case int:
+		if value.(int) != 0 { return value.(int) }
+		return def.(int)
 	}
 
 	return nil
+}
+
+func http_handler_get_memstats (ctx *fasthttp.RequestCtx) {
+	var memstats runtime.MemStats
+	runtime.ReadMemStats(&memstats)
+
+	memstatsjson, jmerr := json.Marshal(memstats)
+	if jmerr == nil {
+		ctx.SetStatusCode(fasthttp.StatusOK)
+		ctx.Write(memstatsjson)
+		return
+	}
+
+	ctx.SetStatusCode(fasthttp.StatusInternalServerError)
 }
