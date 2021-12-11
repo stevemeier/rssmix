@@ -49,7 +49,7 @@ import "github.com/knadh/koanf/providers/file"
 import "runtime"
 
 // Library
-//import lib "github.com/stevemeier/rssmix/lib"
+import lib "../lib"
 
 // Debugging
 //import "github.com/davecgh/go-spew/spew"
@@ -96,13 +96,13 @@ func main () {
 
 	log.Println("Opening database")
 	var dberr error
-	database, dberr = sqlx.Open(value_or_default(k.String("database.type"), "sqlite3").(string),
-				    value_or_default(k.String("database.url"), "rssmix.sql").(string))
+	database, dberr = sqlx.Open(lib.Value_or_default(k.String("database.type"), "sqlite3").(string),
+				    lib.Value_or_default(k.String("database.url"), "rssmix.sql").(string))
 	if dberr != nil { log.Fatal(dberr) }
 
 	log.Println("Starting HTTP server")
-	listener, lsterr := reuseport.Listen(value_or_default(k.String("listen.protocol"), "tcp4").(string),
-					     value_or_default(k.String("listen.address"), "127.0.0.1:8888").(string))
+	listener, lsterr := reuseport.Listen(lib.Value_or_default(k.String("listen.protocol"), "tcp4").(string),
+					     lib.Value_or_default(k.String("listen.address"), "127.0.0.1:8888").(string))
 	if lsterr != nil { log.Fatal(lsterr) }
 	log.Printf("Listening on %s\n", listener.Addr().String())
 	fasthttp.Serve(listener, routes.Handler)
@@ -203,7 +203,7 @@ func http_handler_update_compilation (ctx *fasthttp.RequestCtx) {
 		tx.Exec("UPDATE compilation SET password = ? WHERE id = ?", changes.Password, cplid)
 	}
 	if changes.Name != "" {
-		tx.Exec("UPDATE compilation SET name = ? WHERE id = ?", maxlen(changes.Name, 127), cplid)
+		tx.Exec("UPDATE compilation SET name = ? WHERE id = ?", lib.Maxlen(changes.Name, 127), cplid)
 	}
 
 	commiterr := tx.Commit()
@@ -303,7 +303,7 @@ func http_handler_new_compilation (ctx *fasthttp.RequestCtx) {
 		return
 	}
 
-	tx.Exec("INSERT INTO compilation (id, password, name) VALUES (?, ?, ?)", cplid, newcpl.Password, maxlen(newcpl.Name, 127))
+	tx.Exec("INSERT INTO compilation (id, password, name) VALUES (?, ?, ?)", cplid, newcpl.Password, lib.Maxlen(newcpl.Name, 127))
 	for _, value := range url2feedid {
 		tx.Exec("INSERT INTO compilation_content (id, feed_id) VALUES (?, ?)", cplid, value)
 	}
@@ -447,27 +447,6 @@ func generate_id (length int) (string) {
 	}
 
 	return strings.Join(result, "")
-}
-
-// FIXME: These are generic functions which should go in lib/
-func maxlen (s string, n int) string {
-	if len(s) > n {
-		return s[:n]
-	}
-	return s
-}
-
-func value_or_default (value interface{}, def interface{}) (interface{}) {
-	switch value.(type) {
-	case string:
-		if value.(string) != "" { return value.(string) }
-		return def.(string)
-	case int:
-		if value.(int) != 0 { return value.(int) }
-		return def.(int)
-	}
-
-	return nil
 }
 
 func http_handler_get_memstats (ctx *fasthttp.RequestCtx) {

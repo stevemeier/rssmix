@@ -17,6 +17,8 @@ import "github.com/knadh/koanf"
 import "github.com/knadh/koanf/parsers/yaml"
 import "github.com/knadh/koanf/providers/file"
 
+import lib "../lib"
+
 var database *sqlx.DB
 var k = koanf.New(".")
 
@@ -28,8 +30,8 @@ func main() {
 
 	// Database connection
 	var dberr error
-        database, dberr = sqlx.Open(value_or_default(k.String("database.type"), "sqlite3").(string),
-                                    value_or_default(k.String("database.url"), "rssmix.sql").(string))
+        database, dberr = sqlx.Open(lib.Value_or_default(k.String("database.type"), "sqlite3").(string),
+                                    lib.Value_or_default(k.String("database.url"), "rssmix.sql").(string))
 	if dberr != nil { log.Fatal(dberr) }
 
 	for {
@@ -171,7 +173,7 @@ func compilations_needing_update () ([]string) {
 	rows, qerr := database.Query(`SELECT DISTINCT(compilation.id) FROM compilation 
 				      LEFT JOIN compilation_content ON compilation.id = compilation_content.id 
 				      LEFT JOIN compilation_status ON compilation_status.id = compilation.id 
-				      LEFT JOIN feed_status ON feed_status.id = content.feed_id
+				      LEFT JOIN feed_status ON feed_status.id = compilation_content.feed_id
 				      WHERE feed_status.updated > compilation_status.updated`)
 
 	if qerr != nil {
@@ -193,18 +195,4 @@ func compilations_needing_update () ([]string) {
 func mark_compilation_updated (cplid string) (bool, error) {
 	_, dberr := database.Exec("UPDATE compilation_status SET updated = ? WHERE id = ?", time.Now().Unix(), cplid)
 	return dberr == nil, dberr
-}
-
-// FIXME: This is a duplicate, needs to go to lib/
-func value_or_default (value interface{}, def interface{}) (interface{}) {
-        switch value.(type) {
-        case string:
-                if value.(string) != "" { return value.(string) }
-                return def.(string)
-        case int:
-                if value.(int) != 0 { return value.(int) }
-                return def.(int)
-        }
-
-        return nil
 }

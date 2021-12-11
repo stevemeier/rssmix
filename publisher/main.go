@@ -9,6 +9,8 @@ import "github.com/knadh/koanf"
 import "github.com/knadh/koanf/parsers/yaml"
 import "github.com/knadh/koanf/providers/file"
 
+import lib "../lib"
+
 import "log"
 import "os"
 import "os/exec"
@@ -32,8 +34,8 @@ func main() {
 	k.Load(file.Provider("/etc/rssmix/publisher.yaml"), yaml.Parser())
 
 	var dberr error
-	database, dberr = sqlx.Open(value_or_default(k.String("database.type"), "sqlite3").(string),
-				    value_or_default(k.String("database.url"), "rssmix.sql").(string))
+	database, dberr = sqlx.Open(lib.Value_or_default(k.String("database.type"), "sqlite3").(string),
+				    lib.Value_or_default(k.String("database.url"), "rssmix.sql").(string))
 	if dberr != nil { log.Fatal(dberr) }
 
 	var publishcmd string
@@ -94,18 +96,4 @@ func published_successfully (cplid string) (bool, error) {
 	dbres, dberr := database.Exec(`UPDATE compilation.status SET published = ? WHERE id = ?`, time.Now().Unix(), cplid)
 	affected, _ := dbres.RowsAffected()
 	return affected == 1, dberr
-}
-
-// FIXME: duplicate function
-func value_or_default (value interface{}, def interface{}) (interface{}) {
-        switch value.(type) {
-        case string:
-                if value.(string) != "" { return value.(string) }
-                return def.(string)
-        case int:
-                if value.(int) != 0 { return value.(int) }
-                return def.(int)
-        }
-
-        return nil
 }
