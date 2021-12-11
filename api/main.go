@@ -258,6 +258,7 @@ func http_handler_delete_compilation (ctx *fasthttp.RequestCtx) {
 	}
 
 	ctx.SetStatusCode(fasthttp.StatusOK)
+	log.Printf("Deleted compilation -> %s\n", cplid)
 }
 
 func http_handler_new_compilation (ctx *fasthttp.RequestCtx) {
@@ -273,7 +274,8 @@ func http_handler_new_compilation (ctx *fasthttp.RequestCtx) {
 		return
 	}
 
-	cplid := generate_id(10)
+	idlength := lib.Value_or_default(k.Int("id.length"), 10).(int)
+	cplid := generate_id(idlength)
 
 	// get the IDs for the feeds
 	url2feedid := make(map[string]int64)
@@ -323,8 +325,9 @@ func http_handler_new_compilation (ctx *fasthttp.RequestCtx) {
 	}
 
 	ctx.SetStatusCode(fasthttp.StatusCreated)
-	response, _ := json.Marshal(map[string]string{"id": cplid})
+	response, _ := json.Marshal(map[string]string{"url": url_from_id(cplid)})
 	ctx.Write(response)
+	log.Printf("New compilation -> %s\n", cplid)
 }
 
 func http_handler_get_compilation (ctx *fasthttp.RequestCtx) {
@@ -342,12 +345,6 @@ func http_handler_get_compilation (ctx *fasthttp.RequestCtx) {
 		return
 	}
 
-//	type FeedInfo struct {
-//		Name	string		`json:"name"`
-//		Urls	[]string	`json:"urls"`
-//	}
-
-//	var thisfeed FeedInfo
 	var thiscpl Compilation
 	database.QueryRow("SELECT id, name FROM compilation WHERE id = ?", cplid).Scan(&thiscpl.Id, &thiscpl.Name)
 
@@ -395,7 +392,7 @@ func add_feed_to_catalogue (s string) (bool, int64, error) {
 		return false, -1, err
 	}
 
-	_, dberr := database.Exec("INSERT INTO feed (uschema, urn, created, active) VALUES (?,?,?,1)",
+	_, dberr := database.Exec("INSERT INTO feed (uschema, urn, created) VALUES (?,?,?)",
 					strings.ToLower(url.Scheme),
 					strings.ToLower(url.Host)+url.Path,
 					time.Now().Unix())
@@ -461,4 +458,22 @@ func http_handler_get_memstats (ctx *fasthttp.RequestCtx) {
 	}
 
 	ctx.SetStatusCode(fasthttp.StatusInternalServerError)
+}
+
+func url_from_id (cplid string) (string) {
+	var result string
+
+	// Read URL settings from config
+	protocol := lib.Value_or_default(k.String("public.protocol"), "https").(string)
+	hostname := lib.Value_or_default(k.String("public.hostname"), "localhost").(string)
+	subdirs  := lib.Value_or_default(k.Int("public.subdirs"), 0).(int)
+
+	// Construct URL
+	result = protocol+"://"+hostname
+	if subdirs > 0 {
+		result += lib.Subdirs(cplid, subdirs)
+	}
+	result += "/"+cplid+".rss"
+
+	return result
 }
