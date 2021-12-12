@@ -39,7 +39,6 @@ func main() {
 
 		if len(queue) == 0 {
 			log.Println("No compilations need updating right now")
-			time.Sleep(10 * time.Second)
 		}
 
 		for _, cplid := range queue {
@@ -48,6 +47,8 @@ func main() {
 				mark_compilation_updated(cplid)
 			}
 		}
+
+		time.Sleep(10 * time.Second)
 	}
 }
 
