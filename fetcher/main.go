@@ -148,7 +148,8 @@ func refresh_feeds (storedir string) {
 		}
 
 		// check for content-length header, if present compare to size
-		if lib.File_exists(fstatus.File) {
+		// Last modified may have already triggered the `Download` flag, so we don't always need to check size
+		if lib.File_exists(fstatus.File) && !fstatus.Download {
 			clength := response.Header.Get("Content-Length")
 			clint, converr := strconv.ParseInt(clength, 10, 64)
 			if converr == nil {
