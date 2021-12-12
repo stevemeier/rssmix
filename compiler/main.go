@@ -48,7 +48,7 @@ func main() {
 			}
 		}
 
-		time.Sleep(10 * time.Second)
+		time.Sleep(60 * time.Second)
 	}
 }
 
@@ -74,7 +74,7 @@ func update_compilation (cplid string) (bool, error) {
 
 	var files []string
 	rows, ferr := database.Query(`SELECT feed.filename FROM feed
-				      INNER JOIN compilation_content ON content.feed_id = feed.id
+				      INNER JOIN compilation_content ON compilation_content.feed_id = feed.id
 				      WHERE compilation_content.id = ?`, cplid)
 	if ferr != nil {
 		log.Println(ferr)
