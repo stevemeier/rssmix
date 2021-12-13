@@ -141,7 +141,7 @@ func refresh_feeds (storedir string) {
 			if tserr == nil {
 				// Server has given us a useable last-modified header
 				if serverts.After(file.ModTime()) {
-					log.Printf("[%d] Server has newer version, marking for download\n", feedid)
+					log.Printf("[%d] Server has newer version (by %s), marking for download\n", feedid, serverts.Sub(file.ModTime()) )
 					fstatus.Download = true
 				}
 			}
@@ -155,7 +155,7 @@ func refresh_feeds (storedir string) {
 			if converr == nil {
 				// We have a useable content-length
 				if clint != file.Size() {
-					log.Printf("[%d] Server has different size, marking for download\n", feedid)
+					log.Printf("[%d] Server has different size (%d) from local (%d), marking for download\n", feedid, clint, file.Size())
 					fstatus.Download = true
 				}
 			}
