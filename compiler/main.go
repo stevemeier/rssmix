@@ -17,7 +17,7 @@ import "github.com/knadh/koanf"
 import "github.com/knadh/koanf/parsers/yaml"
 import "github.com/knadh/koanf/providers/file"
 
-import lib "../lib"
+import "github.com/stevemeier/rssmix/lib"
 
 var database *sqlx.DB
 var k = koanf.New(".")

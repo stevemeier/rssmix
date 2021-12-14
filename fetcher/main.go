@@ -19,7 +19,7 @@ import "github.com/knadh/koanf"
 import "github.com/knadh/koanf/parsers/yaml"
 import "github.com/knadh/koanf/providers/file"
 
-import lib "../lib"
+import "github.com/stevemeier/rssmix/lib"
 
 // Debugging
 //import "github.com/davecgh/go-spew/spew"

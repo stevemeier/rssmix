@@ -49,7 +49,7 @@ import "github.com/knadh/koanf/providers/file"
 import "runtime"
 
 // Library
-import lib "../lib"
+import "github.com/stevemeier/rssmix/lib"
 
 // Debugging
 //import "github.com/davecgh/go-spew/spew"
@@ -93,6 +93,8 @@ func main () {
 	routes.PATCH("/v1/compilation/{id}", http_handler_update_compilation)
 	routes.POST("/v1/admin/cleanup_feed", http_handler_cleanup_feed)
 	routes.GET("/v1/admin/memstats", http_handler_get_memstats)
+	routes.ANY("/", http_handler_unknown_path)
+	routes.ANY("/(.*)", http_handler_unknown_path)
 
 	log.Println("Opening database")
 	var dberr error
@@ -108,7 +110,19 @@ func main () {
 	fasthttp.Serve(listener, routes.Handler)
 }
 
+func http_handler_unknown_path (ctx *fasthttp.RequestCtx) {
+	log_request(ctx)
+	ctx.SetStatusCode(fasthttp.StatusBadRequest)
+	response, _ := json.Marshal(map[string][]byte{"method": ctx.Method(),
+							"path": ctx.Path(),
+							"body": ctx.PostBody(),
+							})
+	ctx.Write(response)
+	return
+}
+
 func http_handler_cleanup_feed (ctx *fasthttp.RequestCtx) {
+	log_request(ctx)
 	var before int64
 	var after int64
 	database.QueryRow("SELECT COUNT(*) FROM feed").Scan(&before)
@@ -130,6 +144,7 @@ func http_handler_cleanup_feed (ctx *fasthttp.RequestCtx) {
 }
 
 func http_handler_update_compilation (ctx *fasthttp.RequestCtx) {
+	log_request(ctx)
 	var changes Changeset
 	err := json.Unmarshal(ctx.PostBody(), &changes)
 	if err != nil {
@@ -218,6 +233,7 @@ func http_handler_update_compilation (ctx *fasthttp.RequestCtx) {
 }
 
 func http_handler_delete_compilation (ctx *fasthttp.RequestCtx) {
+	log_request(ctx)
 	cplid := ctx.UserValue("id")
 	userpw := string(ctx.QueryArgs().Peek("password"))
 
@@ -262,6 +278,7 @@ func http_handler_delete_compilation (ctx *fasthttp.RequestCtx) {
 }
 
 func http_handler_new_compilation (ctx *fasthttp.RequestCtx) {
+	log_request(ctx)
 	ctx.Response.Header.Set("Content-Type", "application/json")
 
 	var newcpl Compilation
@@ -331,6 +348,7 @@ func http_handler_new_compilation (ctx *fasthttp.RequestCtx) {
 }
 
 func http_handler_get_compilation (ctx *fasthttp.RequestCtx) {
+	log_request(ctx)
 	ctx.Response.Header.Set("Content-Type", "application/json")
 	cplid := ctx.UserValue("id").(string)
 
@@ -476,4 +494,9 @@ func url_from_id (cplid string) (string) {
 	result += "/"+cplid+".rss"
 
 	return result
+}
+
+func log_request (ctx *fasthttp.RequestCtx) {
+	log.Printf("%s %s %s\n", ctx.Method(), ctx.Path(), ctx.PostBody())
+	return
 }
