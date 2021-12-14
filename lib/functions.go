@@ -43,3 +43,10 @@ func File_exists (path string) bool {
 	_, err := os.Stat(path)
 	return err == nil
 }
+
+func FirstN (s string, n int) string {
+	if len(s) > n {
+		return s[:n]
+	}
+	return s
+}
