@@ -123,22 +123,19 @@ func http_handler_unknown_path (ctx *fasthttp.RequestCtx) {
 
 func http_handler_cleanup_feed (ctx *fasthttp.RequestCtx) {
 	log_request(ctx)
-	var before int64
-	var after int64
-	database.QueryRow("SELECT COUNT(*) FROM feed").Scan(&before)
-	tx, _ := database.Begin()
-	tx.Exec("DELETE FROM feed WHERE id NOT IN (SELECT feed_id FROM compilation_content)")
-	commiterr := tx.Commit()
-	if commiterr != nil {
-		log.Println(commiterr)
-		tx.Rollback()
-	}
-	database.QueryRow("SELECT COUNT(*) FROM feed").Scan(&after)
 
-	ctx.SetStatusCode(fasthttp.StatusOK)
-	response, _ := json.Marshal(map[string]int64{"before": before,
-						     "after": after,
-					             "diff": before - after})
+	result, delerr := database.Exec("DELETE FROM feed WHERE id NOT IN (SELECT feed_id FROM compilation_content)")
+
+	var response []byte
+	if delerr == nil {
+		ctx.SetStatusCode(fasthttp.StatusOK)
+		rowcount, _ := result.RowsAffected()
+		response, _ = json.Marshal(map[string]int64{"deletions":rowcount})
+	} else {
+		ctx.SetStatusCode(fasthttp.StatusInternalServerError)
+		response, _ = json.Marshal(map[string]string{"error":delerr.Error()})
+	}
+
 	ctx.Write(response)
 	return
 }
