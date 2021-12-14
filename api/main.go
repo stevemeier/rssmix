@@ -404,6 +404,12 @@ func compilation_password (s string) (string) {
 }
 
 func add_feed_to_catalogue (s string) (bool, int64, error) {
+	// Schema may be omitted by users, so we add http by default
+	// Fetcher will later follow HTTPS redirects, so that's safe
+	if strings.ToLower(s[0:3]) != "http" {
+		s = "http://" + s
+	}
+
 	url, err := url.ParseRequestURI(s)
 	if err != nil {
 		log.Println(err)
@@ -424,6 +430,10 @@ func add_feed_to_catalogue (s string) (bool, int64, error) {
 }
 
 func url_in_catalogue (s string) (bool, int64) {
+	if strings.ToLower(s[0:3]) != "http" {
+		s = "http://" + s
+	}
+
 	url, err := url.ParseRequestURI(s)
 	if err != nil {
 		log.Println(err)
