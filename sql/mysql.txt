@@ -1,0 +1,5 @@
+CREATE TABLE compilation (id varchar(32) primary key, password varchar(32), name varchar(128), filename varchar(128), url varchar(255));
+CREATE TABLE compilation_content (id varchar(32) not null, feed_id integer);
+CREATE TABLE compilation_status (id varchar(32) primary key, updated integer, published integer);
+CREATE TABLE feed (id integer primary key, uschema varchar(8), urn varchar(255), created int, filename varchar(128));
+CREATE TABLE feed_status (id integer primary key, refreshed integer, updated integer, active integer);
