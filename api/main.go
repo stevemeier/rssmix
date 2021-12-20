@@ -105,7 +105,7 @@ func main () {
 	if dberr != nil { log.Fatal(dberr) }
 
 	log.Println("Starting HTTP server")
-	listener, lsterr := reuseport.Listen(lib.Value_or_default(k.String("listen.protocol"), "tcp4").(string),
+	listener, lsterr := reuseport.Listen(lib.Value_or_default(k.String("listen.family"), "tcp4").(string),
 					     lib.Value_or_default(k.String("listen.address"), "127.0.0.1:8888").(string))
 	if lsterr != nil { log.Fatal(lsterr) }
 	log.Printf("Listening on %s\n", listener.Addr().String())
