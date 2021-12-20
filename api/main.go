@@ -78,6 +78,7 @@ type Changeset struct {
 }
 
 // Global variables
+var version string
 var database *sqlx.DB
 var k = koanf.New(".")
 
@@ -95,6 +96,7 @@ func main () {
 	routes.PATCH("/v1/compilation/{id}", http_handler_update_compilation)
 	routes.POST("/v1/admin/cleanup_feed", http_handler_cleanup_feed)
 	routes.GET("/v1/admin/memstats", http_handler_get_memstats)
+	routes.GET("/v1/admin/version", http_handler_get_version)
 	routes.ANY("/", http_handler_unknown_path)
 	routes.ANY("/(.*)", http_handler_unknown_path)
 
@@ -485,6 +487,13 @@ func http_handler_get_memstats (ctx *fasthttp.RequestCtx) {
 	}
 
 	ctx.SetStatusCode(fasthttp.StatusInternalServerError)
+}
+
+func http_handler_get_version (ctx *fasthttp.RequestCtx) {
+	ctx.SetStatusCode(fasthttp.StatusOK)
+	response, _ := json.Marshal(map[string]string{"version":version})
+	ctx.Write(response)
+	return
 }
 
 func url_from_id (cplid string) (string) {

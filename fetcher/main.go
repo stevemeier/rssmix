@@ -25,6 +25,7 @@ import "github.com/stevemeier/rssmix/lib"
 //import "github.com/davecgh/go-spew/spew"
 
 // Global variables
+var version string
 var database *sqlx.DB
 var k = koanf.New(".")
 
@@ -41,6 +42,8 @@ type FeedStatus struct {
 }
 
 func main () {
+	log.Printf("Version: %s\n", version)
+
         // Parse configuration
         k.Load(file.Provider("./fetcher.yaml"), yaml.Parser())
         k.Load(file.Provider(os.Getenv("HOME")+"/etc/rssmix/fetcher.yaml"), yaml.Parser())

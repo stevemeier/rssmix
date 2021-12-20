@@ -17,6 +17,7 @@ import "os/exec"
 import "time"
 
 // Global variables
+var version string
 var database *sqlx.DB
 var k = koanf.New(".")
 
@@ -28,6 +29,8 @@ type PublishItem struct {
 }
 
 func main() {
+	log.Printf("Version: %s\n", version)
+
 	// Parse configuration
 	k.Load(file.Provider("./publisher.yaml"), yaml.Parser())
 	k.Load(file.Provider(os.Getenv("HOME")+"/etc/rssmix/publisher.yaml"), yaml.Parser())

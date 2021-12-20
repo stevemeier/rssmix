@@ -19,10 +19,14 @@ import "github.com/knadh/koanf/providers/file"
 
 import "github.com/stevemeier/rssmix/lib"
 
+// Global variables
+var version string
 var database *sqlx.DB
 var k = koanf.New(".")
 
 func main() {
+	log.Printf("Version: %s\n", version)
+
         // Parse configuration
         k.Load(file.Provider("./compiler.yaml"), yaml.Parser())
         k.Load(file.Provider(os.Getenv("HOME")+"/etc/rssmix/compiler.yaml"), yaml.Parser())
