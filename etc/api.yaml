@@ -1,0 +1,19 @@
+id:
+  length:
+
+database:
+  type:
+  url:
+
+listen:
+  address:
+  family:
+
+public:
+  hostname:
+  protocol:
+  subdirs:
+
+captcha:
+  google:
+    secret:

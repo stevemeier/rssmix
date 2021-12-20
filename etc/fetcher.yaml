@@ -1,0 +1,12 @@
+database:
+  type:
+  url:
+
+interval:
+
+subdirs:
+
+tls:
+  insecure:
+
+workdir:
