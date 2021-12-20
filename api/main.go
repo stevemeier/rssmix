@@ -20,9 +20,11 @@ package main
 //   "delete": [],
 //   "password": "newpassword" }
 
+import "bytes"
 import "encoding/json"
 import "log"
 import "math/rand"
+import "net/http"
 import "net/url"
 import "os"
 import "strings"
@@ -506,4 +508,44 @@ func url_from_id (cplid string) (string) {
 func log_request (ctx *fasthttp.RequestCtx) {
 	log.Printf("%s %s %s\n", ctx.Method(), ctx.Path(), ctx.PostBody())
 	return
+}
+
+func verify_google_captcha (ctx *fasthttp.RequestCtx) (bool) {
+	type GoogleCaptcha struct {
+		Response	string	`json:"g-recaptcha-response"`
+		Secret		string
+	}
+
+	var captcha GoogleCaptcha
+	// Read secret from config
+	captcha.Secret = k.String("captcha.google.secret")
+	if captcha.Secret == `` {
+		return false
+	}
+
+	// Read response from POST body
+	json.NewDecoder(bytes.NewReader(ctx.PostBody())).Decode(&captcha)
+	if captcha.Response == `` {
+		return false
+	}
+
+	data := url.Values{
+		"secret": { captcha.Secret },
+		"response": { captcha.Response },
+	}
+	resp, err := http.PostForm("https://www.google.com/recaptcha/api/siteverify", data)
+	if err != nil {
+		log.Println(err)
+		return false
+	}
+
+	var res map[string]interface{}
+	json.NewDecoder(resp.Body).Decode(&res)
+
+	if _, ok := res["success"]; ok {
+		return res["success"].(bool)
+	}
+
+	// Default `false`
+	return false
 }
