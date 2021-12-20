@@ -520,6 +520,7 @@ func verify_google_captcha (ctx *fasthttp.RequestCtx) (bool) {
 	// Read secret from config
 	captcha.Secret = k.String("captcha.google.secret")
 	if captcha.Secret == `` {
+		log.Println("No secret configured for Google Captcha!\n")
 		return false
 	}
 
@@ -535,7 +536,7 @@ func verify_google_captcha (ctx *fasthttp.RequestCtx) (bool) {
 	}
 	resp, err := http.PostForm("https://www.google.com/recaptcha/api/siteverify", data)
 	if err != nil {
-		log.Println(err)
+		log.Printf("Google Captcha Verification failed: %s\n", err)
 		return false
 	}
 
