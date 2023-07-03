@@ -59,6 +59,7 @@ func LoadConfig (component string) (*koanf.Koanf) {
 	var k = koanf.New(".")
 
 	// Defaults (for all components)
+	k.Set("configfile", "<none>")
 	k.Set("database.type", "sqlite3")
 	k.Set("database.url", "rssmix.sql")
 
@@ -93,5 +94,5 @@ func LoadConfig (component string) (*koanf.Koanf) {
 		}
   	}
 
-	return k, "<none>"
+	return k
 }
