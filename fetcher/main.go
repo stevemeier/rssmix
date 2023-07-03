@@ -50,15 +50,14 @@ func main () {
 	http.DefaultTransport.(*http.Transport).TLSClientConfig = &tls.Config{InsecureSkipVerify: k.Bool("tls.insecure")}
 
 	// Refresh interval
-	interval := time.Duration(lib.Value_or_default(k.Int("interval"), 10).(int)) * time.Minute
+	interval := time.Duration(k.Int("interval")) * time.Minute
 
 	// Output directory
-	storedir := lib.Value_or_default(k.String("workdir"), os.Getenv("HOME")).(string)
+	storedir := k.String("workdir")
 	log.Printf("Storing data in %s\n", storedir)
 
         var dberr error
-        database, dberr = sqlx.Open(lib.Value_or_default(k.String("database.type"), "sqlite3").(string),
-				    lib.Value_or_default(k.String("database.url"), "rssmix.sql").(string))
+        database, dberr = sqlx.Open(k.String("database.type"), k.String("database.url"))
         if dberr != nil { log.Fatal(dberr) }
 
 	for {
@@ -110,7 +109,7 @@ func refresh_feeds (storedir string) {
 		fstatus.URL= fstatus.Schema+"://"+fstatus.URN
 		fstatus.URLHash = sha256sum(fstatus.URL)
 
-		subdirs  := lib.Value_or_default(k.Int("subdirs"), 0).(int)
+		subdirs  := k.Int("subdirs")
 		fstatus.File = storedir+"/"+lib.Subdirs(fstatus.URLHash, subdirs)
 
 		// Check that we have an entry in the `feed_status` table

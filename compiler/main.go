@@ -31,8 +31,7 @@ func main() {
 
 	// Database connection
 	var dberr error
-        database, dberr = sqlx.Open(lib.Value_or_default(k.String("database.type"), "sqlite3").(string),
-                                    lib.Value_or_default(k.String("database.url"), "rssmix.sql").(string))
+        database, dberr = sqlx.Open(k.String("database.type"), k.String("database.url"))
 	if dberr != nil { log.Fatal(dberr) }
 
 	for {
