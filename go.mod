@@ -8,7 +8,7 @@ replace github.com/stevemeier/rssmix/lib v0.0.0 => ./lib
 
 require github.com/jmoiron/sqlx v1.2.0
 
-require github.com/knadh/koanf v1.3.3
+require github.com/knadh/koanf v1.5.0
 
 require github.com/mattn/go-sqlite3 v1.10.0
 
