@@ -364,7 +364,7 @@ func http_handler_get_compilation (ctx *fasthttp.RequestCtx) {
 	database.QueryRow("SELECT id, name FROM compilation WHERE id = ?", cplid).Scan(&thiscpl.Id, &thiscpl.Name)
 
 	rows, qerr := database.Query(`SELECT feed.uschema, feed.urn FROM feed
-				      INNER JOIN compilation_content ON feed.id=content.feed_id
+				      INNER JOIN compilation_content ON feed.id=compilation_content.feed_id
 				      WHERE compilation_content.id = ?`, cplid)
 	if qerr != nil {
 		log.Println(qerr)
