@@ -80,12 +80,11 @@ var database *sqlx.DB
 var k = koanf.New(".")
 
 func main () {
+	log.Printf("Version: %s\n", version)
+
 	// Parse configuration
 	k = lib.LoadConfig("api")
 	log.Printf("Loaded config from %s\n", k.String("configfile"))
-//	k.Load(file.Provider("./api.yaml"), yaml.Parser())
-//	k.Load(file.Provider(os.Getenv("HOME")+"/etc/rssmix/api.yaml"), yaml.Parser())
-//	k.Load(file.Provider("/etc/rssmix/api.yaml"), yaml.Parser())
 
 	// Set up HTTP routes
 	routes := router.New()

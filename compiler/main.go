@@ -14,8 +14,6 @@ import "github.com/jmoiron/sqlx"
 
 // Configuration
 import "github.com/knadh/koanf"
-import "github.com/knadh/koanf/parsers/yaml"
-import "github.com/knadh/koanf/providers/file"
 
 import "github.com/stevemeier/rssmix/lib"
 
@@ -28,9 +26,8 @@ func main() {
 	log.Printf("Version: %s\n", version)
 
         // Parse configuration
-        k.Load(file.Provider("./compiler.yaml"), yaml.Parser())
-        k.Load(file.Provider(os.Getenv("HOME")+"/etc/rssmix/compiler.yaml"), yaml.Parser())
-        k.Load(file.Provider("/etc/rssmix/compiler.yaml"), yaml.Parser())
+        k = lib.LoadConfig("compiler")
+        log.Printf("Loaded config from %s\n", k.String("configfile"))
 
 	// Database connection
 	var dberr error

@@ -16,8 +16,6 @@ import "github.com/jmoiron/sqlx"
 
 // Configuration
 import "github.com/knadh/koanf"
-import "github.com/knadh/koanf/parsers/yaml"
-import "github.com/knadh/koanf/providers/file"
 
 import "github.com/stevemeier/rssmix/lib"
 
@@ -45,9 +43,8 @@ func main () {
 	log.Printf("Version: %s\n", version)
 
         // Parse configuration
-        k.Load(file.Provider("./fetcher.yaml"), yaml.Parser())
-        k.Load(file.Provider(os.Getenv("HOME")+"/etc/rssmix/fetcher.yaml"), yaml.Parser())
-        k.Load(file.Provider("/etc/rssmix/fetcher.yaml"), yaml.Parser())
+        k = lib.LoadConfig("fetcher")
+        log.Printf("Loaded config from %s\n", k.String("configfile"))
 
 	// Set TLS verification flag
 	http.DefaultTransport.(*http.Transport).TLSClientConfig = &tls.Config{InsecureSkipVerify: k.Bool("tls.insecure")}

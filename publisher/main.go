@@ -1,20 +1,17 @@
 package main
 
+import "log"
+import "os/exec"
+import "time"
+
 // SQL modules
 import _ "github.com/mattn/go-sqlite3"
 import "github.com/jmoiron/sqlx"
 
 // Configuration
 import "github.com/knadh/koanf"
-import "github.com/knadh/koanf/parsers/yaml"
-import "github.com/knadh/koanf/providers/file"
 
 import "github.com/stevemeier/rssmix/lib"
-
-import "log"
-import "os"
-import "os/exec"
-import "time"
 
 // Global variables
 var version string
@@ -32,9 +29,8 @@ func main() {
 	log.Printf("Version: %s\n", version)
 
 	// Parse configuration
-	k.Load(file.Provider("./publisher.yaml"), yaml.Parser())
-	k.Load(file.Provider(os.Getenv("HOME")+"/etc/rssmix/publisher.yaml"), yaml.Parser())
-	k.Load(file.Provider("/etc/rssmix/publisher.yaml"), yaml.Parser())
+        k = lib.LoadConfig("publisher")
+        log.Printf("Loaded config from %s\n", k.String("configfile"))
 
 	var dberr error
 	database, dberr = sqlx.Open(lib.Value_or_default(k.String("database.type"), "sqlite3").(string),
