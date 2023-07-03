@@ -55,7 +55,7 @@ func FirstN (s string, n int) string {
 	return s
 }
 
-func LoadConfig (component string) (*koanf.Koanf, string) {
+func LoadConfig (component string) (*koanf.Koanf) {
 	var k = koanf.New(".")
 
 	// Defaults (for all components)
@@ -88,7 +88,8 @@ func LoadConfig (component string) (*koanf.Koanf, string) {
 
 		loaderr := k.Load(file.Provider(configfile), yaml.Parser())
 		if loaderr == nil {
-			return k, configfile
+			k.Set("configfile", configfile)
+			return k
 		}
   	}
 
