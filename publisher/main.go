@@ -32,6 +32,8 @@ func main() {
         k = lib.LoadConfig("publisher")
         log.Printf("Loaded config from %s\n", k.String("configfile"))
 
+	// Open database
+	log.Printf("Opening database: %s\n", k.String("database.url"))
 	var dberr error
 	database, dberr = sqlx.Open(k.String("database.type"), k.String("database.url"))
 	if dberr != nil { log.Fatal(dberr) }

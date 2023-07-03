@@ -98,7 +98,7 @@ func main () {
 	routes.ANY("/", http_handler_unknown_path)
 	routes.ANY("/(.*)", http_handler_unknown_path)
 
-	log.Println("Opening database")
+	log.Printf("Opening database: %s\n", k.String("database.url"))
 	var dberr error
 	database, dberr = sqlx.Open(k.String("database.type"), k.String("database.url"))
 	if dberr != nil { log.Fatal(dberr) }

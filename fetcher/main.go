@@ -56,6 +56,8 @@ func main () {
 	storedir := k.String("workdir")
 	log.Printf("Storing data in %s\n", storedir)
 
+	// Open database
+	log.Printf("Opening database: %s\n", k.String("database.url"))
         var dberr error
         database, dberr = sqlx.Open(k.String("database.type"), k.String("database.url"))
         if dberr != nil { log.Fatal(dberr) }
