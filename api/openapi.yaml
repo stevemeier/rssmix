@@ -1,0 +1,90 @@
+---
+openapi: "3.0.0"
+info:
+  version: 2023-07-03
+  title: rssmix
+servers:
+  - url: http://localhost:8000/
+paths:
+
+  /compilation:
+    post:
+      summary: Create a new compilation
+      responses:
+        '201':
+          description: Compilation created successfully
+
+  /compilation/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+
+      - name: password
+        in: path
+        required: false
+        schema:
+          type: string
+
+    get:
+      summary: Retrieve the details of a compilation
+      responses:
+        '200':
+          description: OK
+        '404':
+          description: A compilation with this ID could not be found
+
+    delete:
+      summary: Delete an existing compilation
+      responses:
+        '200':
+          description:
+            The compilation has been deleted successfully
+        '401':
+          description:
+            The compilation is password-protected, but none was provided
+        '403':
+          description:
+            The compilation is password-protected and the password was incorrect
+        '404':
+          description:
+            The compilation with this ID was not found
+
+    patch:
+      summary: Update an existing compilation
+      responses:
+        '200':
+          description:
+            The compilation has been updated successfully
+        '401':
+          description:
+            The compilation is password-protected, but none was provided
+        '403':
+          description:
+            The compilation is password-protected and the password was incorrect
+        '404':
+          description:
+            The compilation with this ID was not found
+
+  /admin/cleanup_feed:
+    post:
+      summary: Remove URLs from feed which are not used by any compilation
+      responses:
+        '200':
+          description: OK
+
+  /admin/memstats:
+    get:
+      summary: Retrieve memory statistics of the API server
+      responses:
+        '200':
+          description: OK
+
+  /admin/version:
+    get:
+      summary: Retrieve the currently running version of the API server
+      responses:
+        '200':
+          description: OK
