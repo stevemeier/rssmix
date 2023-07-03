@@ -26,7 +26,6 @@ import "log"
 import "math/rand"
 import "net/http"
 import "net/url"
-import "os"
 import "strings"
 import "time"
 
@@ -44,8 +43,6 @@ import "github.com/fasthttp/router"
 
 // Configuration
 import "github.com/knadh/koanf"
-import "github.com/knadh/koanf/parsers/yaml"
-import "github.com/knadh/koanf/providers/file"
 
 // MemStats
 import "runtime"
@@ -84,9 +81,11 @@ var k = koanf.New(".")
 
 func main () {
 	// Parse configuration
-	k.Load(file.Provider("./api.yaml"), yaml.Parser())
-	k.Load(file.Provider(os.Getenv("HOME")+"/etc/rssmix/api.yaml"), yaml.Parser())
-	k.Load(file.Provider("/etc/rssmix/api.yaml"), yaml.Parser())
+	k = lib.LoadConfig("api")
+	log.Printf("Loaded config from %s\n", k.String("configfile"))
+//	k.Load(file.Provider("./api.yaml"), yaml.Parser())
+//	k.Load(file.Provider(os.Getenv("HOME")+"/etc/rssmix/api.yaml"), yaml.Parser())
+//	k.Load(file.Provider("/etc/rssmix/api.yaml"), yaml.Parser())
 
 	// Set up HTTP routes
 	routes := router.New()
@@ -102,13 +101,11 @@ func main () {
 
 	log.Println("Opening database")
 	var dberr error
-	database, dberr = sqlx.Open(lib.Value_or_default(k.String("database.type"), "sqlite3").(string),
-				    lib.Value_or_default(k.String("database.url"), "rssmix.sql").(string))
+	database, dberr = sqlx.Open(k.String("database.type"), k.String("database.url"))
 	if dberr != nil { log.Fatal(dberr) }
 
 	log.Println("Starting HTTP server")
-	listener, lsterr := reuseport.Listen(lib.Value_or_default(k.String("listen.family"), "tcp4").(string),
-					     lib.Value_or_default(k.String("listen.address"), "127.0.0.1:8888").(string))
+	listener, lsterr := reuseport.Listen(k.String("listen.family"), k.String("listen.address"))
 	if lsterr != nil { log.Fatal(lsterr) }
 	log.Printf("Listening on %s\n", listener.Addr().String())
 	fasthttp.Serve(listener, routes.Handler)
@@ -292,7 +289,7 @@ func http_handler_new_compilation (ctx *fasthttp.RequestCtx) {
 		return
 	}
 
-	idlength := lib.Value_or_default(k.Int("id.length"), 10).(int)
+	idlength := k.Int("id.length")
 	cplid := generate_id(idlength)
 
 	// get the IDs for the feeds
@@ -500,9 +497,9 @@ func url_from_id (cplid string) (string) {
 	var result string
 
 	// Read URL settings from config
-	protocol := lib.Value_or_default(k.String("public.protocol"), "https").(string)
-	hostname := lib.Value_or_default(k.String("public.hostname"), "localhost").(string)
-	subdirs  := lib.Value_or_default(k.Int("public.subdirs"), 0).(int)
+	protocol := k.String("public.protocol")
+	hostname := k.String("public.hostname")
+	subdirs  := k.Int("public.subdirs")
 
 	// Construct URL
 	result = protocol+"://"+hostname
