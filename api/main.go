@@ -102,6 +102,7 @@ func main () {
 	var dberr error
 	database, dberr = sqlx.Open(k.String("database.type"), k.String("database.url"))
 	if dberr != nil { log.Fatal(dberr) }
+	defer database.Close()
 
 	log.Println("Starting HTTP server")
 	listener, lsterr := reuseport.Listen(k.String("listen.family"), k.String("listen.address"))

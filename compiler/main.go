@@ -34,6 +34,7 @@ func main() {
 	var dberr error
         database, dberr = sqlx.Open(k.String("database.type"), k.String("database.url"))
 	if dberr != nil { log.Fatal(dberr) }
+	defer database.Close()
 
 	for {
 		queue := compilations_needing_update()

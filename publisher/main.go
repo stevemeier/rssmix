@@ -37,6 +37,7 @@ func main() {
 	var dberr error
 	database, dberr = sqlx.Open(k.String("database.type"), k.String("database.url"))
 	if dberr != nil { log.Fatal(dberr) }
+	defer database.Close()
 
 	var publishcmd string
 	publishcmd = k.String("publish.command")
