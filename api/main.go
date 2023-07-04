@@ -288,8 +288,7 @@ func http_handler_new_compilation (ctx *fasthttp.RequestCtx) {
 		return
 	}
 
-	idlength := k.Int("id.length")
-	cplid := generate_id(idlength)
+	cplid := generate_id(k.Int("id.length"))
 
 	// get the IDs for the feeds
 	url2feedid := make(map[string]int64)
@@ -349,7 +348,7 @@ func http_handler_get_compilation (ctx *fasthttp.RequestCtx) {
 	ctx.Response.Header.Set("Content-Type", "application/json")
 	cplid := ctx.UserValue("id").(string)
 
-	if len(cplid) > 10 {
+	if len(cplid) > k.Int("id.length") {
 		// ID length is 10, so longer can not exist
 		ctx.SetStatusCode(fasthttp.StatusNotFound)
 		return
