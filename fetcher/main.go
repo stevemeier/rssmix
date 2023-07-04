@@ -74,6 +74,8 @@ func main () {
 
 
 func refresh_feeds (storedir string) {
+	var scanerr error
+	var execerr error
 	var feeds []int64
 	rows, qerr := database.Query("SELECT id FROM feed")
 	if qerr != nil {
@@ -84,7 +86,7 @@ func refresh_feeds (storedir string) {
 	defer rows.Close()
 	for rows.Next() {
 		var feedid int64
-		scanerr := rows.Scan(&feedid)
+		scanerr = rows.Scan(&feedid)
 		if scanerr == nil {
 			feeds = append(feeds, feedid)
 		}
@@ -100,15 +102,19 @@ func refresh_feeds (storedir string) {
 
 		// Check that feed is set to active
 		var active int64
-		database.QueryRow("SELECT active FROM feed_status WHERE id = ?", feedid).Scan(&active)
+		scanerr = database.QueryRow("SELECT active FROM feed_status WHERE id = ?", feedid).Scan(&active)
+		if scanerr != nil { log.Printf("[%d] Database error: %s\n", feedid, scanerr) }
 		if active == 0 {
 			log.Printf("[%d] Feed is NOT active\n", feedid)
 			continue
 		}
 
 		// Get feed details
-		database.QueryRow("SELECT refreshed, updated FROM feed_status WHERE id = ?", feedid).Scan(&fstatus.Refreshed, &fstatus.Updated)
-		database.QueryRow("SELECT uschema, urn FROM feed WHERE id = ?", feedid).Scan(&fstatus.Schema, &fstatus.URN)
+		scanerr = database.QueryRow("SELECT refreshed, updated FROM feed_status WHERE id = ?", feedid).Scan(&fstatus.Refreshed, &fstatus.Updated)
+		if scanerr != nil { log.Printf("[%d] Database error: %s\n", feedid, scanerr) }
+		scanerr = database.QueryRow("SELECT uschema, urn FROM feed WHERE id = ?", feedid).Scan(&fstatus.Schema, &fstatus.URN)
+		if scanerr != nil { log.Printf("[%d] Database error: %s\n", feedid, scanerr) }
+
 		fstatus.URL= fstatus.Schema+"://"+fstatus.URN
 		fstatus.URLHash = sha256sum(fstatus.URL)
 
@@ -118,9 +124,11 @@ func refresh_feeds (storedir string) {
 		// Check that we have an entry in the `feed_status` table
 		// Initialize as -1 to make sure 0 comes from the DB
 		var statuscount int64 = -1
-		database.QueryRow("SELECT COUNT(*) FROM feed_status WHERE id = ?", feedid).Scan(&statuscount)
+		scanerr = database.QueryRow("SELECT COUNT(*) FROM feed_status WHERE id = ?", feedid).Scan(&statuscount)
+		if scanerr != nil { log.Printf("[%d] Database error: %s\n", feedid, scanerr) }
 		if statuscount == 0 {
-			database.Exec("INSERT INTO feed_status (id) VALUES (?)", feedid)
+			_, execerr = database.Exec("INSERT INTO feed_status (id) VALUES (?)", feedid)
+			if execerr != nil { log.Printf("[%d] Database error: %s\n", feedid, execerr) }
 		}
 
 		response, headerr := netClient.Head(fstatus.URL)
@@ -163,14 +171,17 @@ func refresh_feeds (storedir string) {
 			}
 		}
 
-		database.Exec("UPDATE feed_status SET refreshed = ? WHERE id = ?", time.Now().Unix(), feedid)
+		_, execerr = database.Exec("UPDATE feed_status SET refreshed = ? WHERE id = ?", time.Now().Unix(), feedid)
+		if execerr != nil { log.Printf("[%d] Database error: %s\n", feedid, execerr) }
 		if fstatus.Download {
 			log.Printf("[%d] Downloading %s -> %s\n", feedid, fstatus.URL, fstatus.File)
 			dlsuccess, dlbytes := download_feed(netClient, feedid, fstatus.URL, fstatus.File)
 			if dlsuccess {
 				log.Printf("[%d] Download successful (%d bytes)\n", feedid, dlbytes)
-				database.Exec("UPDATE feed_status SET updated = ? WHERE id = ?", time.Now().Unix(), feedid)
-				database.Exec("UPDATE feed SET filename = ? WHERE id = ?", fstatus.File, feedid)
+				_, execerr = database.Exec("UPDATE feed_status SET updated = ? WHERE id = ?", time.Now().Unix(), feedid)
+				if execerr != nil { log.Printf("[%d] Database error: %s\n", feedid, execerr) }
+				_, execerr = database.Exec("UPDATE feed SET filename = ? WHERE id = ?", fstatus.File, feedid)
+				if execerr != nil { log.Printf("[%d] Database error: %s\n", feedid, execerr) }
 			} else {
 				log.Printf("[%d] Download FAILED\n", feedid)
 			}

@@ -46,7 +46,10 @@ func main() {
 		for _, cplid := range queue {
 			updsuccess, _ := update_compilation(cplid)
 			if updsuccess {
-				mark_compilation_updated(cplid)
+				updok, upderr := mark_compilation_updated(cplid)
+				if !updok {
+					log.Printf("[%s] Database error: %s\n", cplid, upderr)
+				}
 			}
 		}
 

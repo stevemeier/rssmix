@@ -39,8 +39,7 @@ func main() {
 	if dberr != nil { log.Fatal(dberr) }
 	defer database.Close()
 
-	var publishcmd string
-	publishcmd = k.String("publish.command")
+	var publishcmd string = k.String("publish.command")
 	if publishcmd == "" { log.Fatal("No publish command configured") }
 
 	for {
@@ -57,7 +56,10 @@ func main() {
 			cmderr := cmd.Run()
 			if cmderr == nil {
 				log.Printf("[%s] Published successfully\n", item.Id)
-				published_successfully(item.Id)
+				pubok, puberr := published_successfully(item.Id)
+				if !pubok {
+					log.Printf("[%s] Database error: %s\n", item.Id, puberr)
+				}
 			} else {
 				log.Printf("[%s] Publishing failed with error: %s\n", item.Id, cmderr.Error())
 			}
