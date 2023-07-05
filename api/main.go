@@ -157,16 +157,16 @@ func http_handler_update_compilation (ctx *fasthttp.RequestCtx) {
 		return
 	}
 
-	cplid := ctx.UserValue("id")
+	cplid := trim_dotrss(ctx.UserValue("id").(string))
 	userpw := string(ctx.QueryArgs().Peek("password"))
 
-	if !compilation_exists(cplid.(string)) {
+	if !compilation_exists(cplid) {
 		ctx.SetStatusCode(fasthttp.StatusNotFound)
 		return
 	}
 
 	// Retrieve the password for the compilation
-	cplpw := compilation_password(cplid.(string))
+	cplpw := compilation_password(cplid)
 
 	if len(cplpw) > 0 && userpw == "" {
 		// Compilation has a password but none was provided
@@ -241,16 +241,16 @@ func http_handler_update_compilation (ctx *fasthttp.RequestCtx) {
 func http_handler_delete_compilation (ctx *fasthttp.RequestCtx) {
 	var execerr error
 	log_request(ctx)
-	cplid := ctx.UserValue("id")
+	cplid := trim_dotrss(ctx.UserValue("id").(string))
 	userpw := string(ctx.QueryArgs().Peek("password"))
 
-	if !compilation_exists(cplid.(string)) {
+	if !compilation_exists(cplid) {
 		ctx.SetStatusCode(fasthttp.StatusNotFound)
 		return
 	}
 
 	// Retrieve the password for the compilation
-	cplpw := compilation_password(cplid.(string))
+	cplpw := compilation_password(cplid)
 
 	if len(cplpw) > 0 && userpw == "" {
 		// Compilation has a password but none was provided
@@ -367,7 +367,7 @@ func http_handler_get_compilation (ctx *fasthttp.RequestCtx) {
 	var scanerr error
 	log_request(ctx)
 	ctx.Response.Header.Set("Content-Type", "application/json")
-	cplid := ctx.UserValue("id").(string)
+	cplid := trim_dotrss(ctx.UserValue("id").(string))
 
 	if len(cplid) > k.Int("id.length") {
 		// ID length is 10, so longer can not exist
@@ -581,4 +581,8 @@ func verify_google_captcha (ctx *fasthttp.RequestCtx) (bool) {
 
 	// Default `false`
 	return false
+}
+
+func trim_dotrss (s string) (string) {
+	return strings.TrimSuffix(s, ".rss")
 }
