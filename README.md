@@ -51,7 +51,7 @@ If you are running all components on a single system, this component is not need
 ## Database
 
 All components support both MySQL/MariaDB and SQLite as a database backend.
-You can find the schema for each in the `schema/` folder.
+You can find the schema for each in the `sql/` folder.
 There are currently no indices but these may be helpful in a big(ger) installation.
 
 ## Compiling

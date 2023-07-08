@@ -1,4 +1,4 @@
-CREATE TABLE compilation (id string primary key unique, password string, name string, filename string, url string);
+CREATE TABLE compilation (id string primary key unique, password string, name string, filename string, url string, filter_inc string, filter_exc string);
 CREATE TABLE compilation_content (id string not null, feed_id integer);
 CREATE TABLE compilation_status (id string, updated int, published int);
 CREATE TABLE feed (id integer primary key, uschema string, urn string, created int, filename string);
