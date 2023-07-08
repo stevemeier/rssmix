@@ -76,6 +76,10 @@ type Changeset struct {
 	Delete		[]string	`json:"delete"`
 	Password	string		`json:"password"`
 	Name		string		`json:"name"`
+	Filter		struct {
+		Include []string	`json:"include"`
+		Exclude []string	`json:"exclude"`
+	}				`json:"filter"`
 }
 
 // Global variables
@@ -231,6 +235,14 @@ func http_handler_update_compilation (ctx *fasthttp.RequestCtx) {
 		_, execerr := tx.Exec("UPDATE compilation SET name = ? WHERE id = ?", lib.Maxlen(changes.Name, 127), cplid)
 		if execerr != nil { log.Printf("[%s] Database error: %s\n", cplid, execerr) }
 	}
+	if len(changes.Filter.Include) > 0 {
+		_, execerr := tx.Exec("UPDATE compilation SET filter_inc = ? WHERE id = ?", strings.Join(changes.Filter.Include, ","), cplid)
+		if execerr != nil { log.Printf("[%s] Database error: %s\n", cplid, execerr) }
+	}
+	if len(changes.Filter.Exclude) > 0 {
+		_, execerr := tx.Exec("UPDATE compilation SET filter_exc = ? WHERE id = ?", strings.Join(changes.Filter.Exclude, ","), cplid)
+		if execerr != nil { log.Printf("[%s] Database error: %s\n", cplid, execerr) }
+	}
 
 	commiterr := tx.Commit()
 	if commiterr != nil {
@@ -340,7 +352,8 @@ func http_handler_new_compilation (ctx *fasthttp.RequestCtx) {
 	}
 	defer tx.Rollback()
 
-	_, execerr = tx.Exec("INSERT INTO compilation (id, password, name) VALUES (?, ?, ?)", cplid, newcpl.Password, lib.Maxlen(newcpl.Name, 127))
+	_, execerr = tx.Exec("INSERT INTO compilation (id, password, name, filter_inc, filter_exc) VALUES (?, ?, ?, ?, ?)", cplid, newcpl.Password, lib.Maxlen(newcpl.Name, 127),
+                                                                                                                            strings.Join(newcpl.Filter.Include,","), strings.Join(newcpl.Filter.Exclude,","))
 	if execerr != nil { log.Printf("[%s] Database error: %s\n", cplid, execerr) }
 	for _, value := range url2feedid {
 		_, execerr = tx.Exec("INSERT INTO compilation_content (id, feed_id) VALUES (?, ?)", cplid, value)
