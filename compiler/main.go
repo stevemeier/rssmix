@@ -2,7 +2,9 @@ package main
 
 import "log"
 import "os"
+import "regexp"
 import "sort"
+import "strings"
 import "time"
 
 import "github.com/mmcdole/gofeed"
@@ -65,11 +67,19 @@ func update_compilation (cplid string) (bool, error) {
 	// Get feed parameters from DB
 	var title string
 	var outfile string
-	qrerr := database.QueryRow("SELECT name, filename FROM compilation WHERE id = ?", cplid).Scan(&title, &outfile)
+	var db_filter_inc string
+	var db_filter_exc string
+	var filter_inc []*regexp.Regexp
+	var filter_exc []*regexp.Regexp
+	qrerr := database.QueryRow("SELECT name, filename, COALESCE(filter_inc,''), COALESCE(filter_exc,'') FROM compilation WHERE id = ?", cplid).Scan(&title, &outfile, &db_filter_inc, &db_filter_exc)
 	if qrerr != nil {
 		log.Println(qrerr)
 		return false, qrerr
 	}
+
+	// We turn the string from the database into an array of regexp
+	if len(db_filter_inc) > 0 { filter_inc = string_to_regexp(db_filter_inc, ",") }
+	if len(db_filter_exc) > 0 { filter_exc = string_to_regexp(db_filter_exc, ",") }
 
 	// Create feed object
 	output := &feeds.Feed{}
@@ -107,7 +117,17 @@ func update_compilation (cplid string) (bool, error) {
 
 	        for _, item := range input.Items {
 			nextitem := transform_item(item)
-			output.Items = append(output.Items, &nextitem)
+			// Apply filter
+			if (len(filter_inc) == 0 && len(filter_exc) == 0) ||
+			   (len(filter_inc) > 0 &&  match_any(nextitem.Title, filter_inc)) ||
+			   (len(filter_exc) > 0 && !match_any(nextitem.Title, filter_exc)) {
+				// Neither include nor exlcude is set
+				// Include is set and matches
+				// Exclude is set and does not match
+				output.Items = append(output.Items, &nextitem)
+			} else {
+				log.Printf("Not adding %s\n", nextitem.Title)
+			}
 		}
 	}
 
@@ -201,4 +221,25 @@ func compilations_needing_update () ([]string) {
 func mark_compilation_updated (cplid string) (bool, error) {
 	_, dberr := database.Exec("UPDATE compilation_status SET updated = ? WHERE id = ?", time.Now().Unix(), cplid)
 	return dberr == nil, dberr
+}
+
+func string_to_regexp (s string, sep string) ([]*regexp.Regexp) {
+	var result []*regexp.Regexp
+
+	for _, i := range strings.Split(s, sep) {
+		re, err := regexp.Compile(i)
+		if err == nil { result = append(result, re) }
+	}
+
+	return result
+}	
+
+func match_any (s string, re []*regexp.Regexp) (bool) {
+	if len(re) == 0 { return false }
+
+	for _, regexp := range re {
+		if regexp.MatchString(s) { return true }
+	}
+
+	return false
 }

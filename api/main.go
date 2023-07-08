@@ -59,6 +59,10 @@ type Compilation struct {
 	Urls		[]string	`json:"urls"`
 	Password	string		`json:"password,omitempty"`
 	Name		string		`json:"name"`
+	Filter		struct {
+		Include []string	`json:"include"`
+		Exclude []string	`json:"exclude"`
+	}				`json:"filter"`
 }
 
 type Feed struct {
@@ -381,8 +385,16 @@ func http_handler_get_compilation (ctx *fasthttp.RequestCtx) {
 	}
 
 	var thiscpl Compilation
-	scanerr = database.QueryRow("SELECT id, name FROM compilation WHERE id = ?", cplid).Scan(&thiscpl.Id, &thiscpl.Name)
+	var filter_inc string
+	var filter_exc string
+	scanerr = database.QueryRow("SELECT id, name, COALESCE(filter_inc,''), COALESCE(filter_exc,'') FROM compilation WHERE id = ?", cplid).Scan(&thiscpl.Id, &thiscpl.Name, &filter_inc, &filter_exc)
 	if scanerr != nil { log.Printf("[%s] Database error: %s\n", cplid, scanerr) }
+
+	// To get an empty array, we init it first and only split the DB data, if it's not empty
+	thiscpl.Filter.Include = []string{}
+	thiscpl.Filter.Exclude = []string{}
+	if len(filter_inc) > 0 { thiscpl.Filter.Include = strings.Split(filter_inc, ",") }
+	if len(filter_exc) > 0 { thiscpl.Filter.Exclude = strings.Split(filter_exc, ",") }
 
 	rows, qerr := database.Query(`SELECT feed.uschema, feed.urn FROM feed
 				      INNER JOIN compilation_content ON feed.id=compilation_content.feed_id
