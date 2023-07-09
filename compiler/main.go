@@ -67,11 +67,12 @@ func update_compilation (cplid string) (bool, error) {
 	// Get feed parameters from DB
 	var title string
 	var outfile string
+	var publicurl string
 	var db_filter_inc string
 	var db_filter_exc string
 	var filter_inc []*regexp.Regexp
 	var filter_exc []*regexp.Regexp
-	qrerr := database.QueryRow("SELECT name, COALESCE(filename,''), COALESCE(filter_inc,''), COALESCE(filter_exc,'') FROM compilation WHERE id = ?", cplid).Scan(&title, &outfile, &db_filter_inc, &db_filter_exc)
+	qrerr := database.QueryRow("SELECT name, COALESCE(filename,''), COALESCE(url,''), COALESCE(filter_inc,''), COALESCE(filter_exc,'') FROM compilation WHERE id = ?", cplid).Scan(&title, &outfile, &publicurl, &db_filter_inc, &db_filter_exc)
 	if qrerr != nil {
 		log.Println(qrerr)
 		return false, qrerr
@@ -89,7 +90,7 @@ func update_compilation (cplid string) (bool, error) {
 	output := &feeds.Feed{}
 	output.Title = title
 	output.Created = time.Now()
-	output.Link = &feeds.Link{Href: "rssmix.eu/foo"} // this is required
+	output.Link = &feeds.Link{Href: publicurl} // this is required
 
 	var files []string
 	rows, ferr := database.Query(`SELECT feed.filename FROM feed
