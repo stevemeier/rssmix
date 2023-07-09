@@ -360,6 +360,10 @@ func http_handler_new_compilation (ctx *fasthttp.RequestCtx) {
 		if execerr != nil { log.Printf("[%s] Database error: %s\n", cplid, execerr) }
 	}
 
+	// Add it to compilation_status as well, otherwise compiler will not pick it up
+	_, execerr = tx.Exec("INSERT INTO compilation_status VALUES (?, 0, 0)", cplid)
+	if execerr != nil { log.Printf("[%s] Database error: %s\n", cplid, execerr) }
+
 	commiterr := tx.Commit()
 	if commiterr != nil {
 		log.Println(commiterr)
@@ -472,6 +476,13 @@ func add_feed_to_catalogue (s string) (bool, int64, error) {
 	}
 
 	exists, feedid := url_in_catalogue(s)
+	if exists {
+		_, dberr := database.Exec("INSERT INTO feed_status VALUES (?,?,?,?)", feedid, 0, 0, 1)
+		if dberr != nil {
+			log.Printf("Feed %d was added but could not be added to feed_status: %s\n", feedid, dberr)
+		}
+	}
+
 	return exists, feedid, nil
 }
 

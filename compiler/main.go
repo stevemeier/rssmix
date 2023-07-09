@@ -71,10 +71,14 @@ func update_compilation (cplid string) (bool, error) {
 	var db_filter_exc string
 	var filter_inc []*regexp.Regexp
 	var filter_exc []*regexp.Regexp
-	qrerr := database.QueryRow("SELECT name, filename, COALESCE(filter_inc,''), COALESCE(filter_exc,'') FROM compilation WHERE id = ?", cplid).Scan(&title, &outfile, &db_filter_inc, &db_filter_exc)
+	qrerr := database.QueryRow("SELECT name, COALESCE(filename,''), COALESCE(filter_inc,''), COALESCE(filter_exc,'') FROM compilation WHERE id = ?", cplid).Scan(&title, &outfile, &db_filter_inc, &db_filter_exc)
 	if qrerr != nil {
 		log.Println(qrerr)
 		return false, qrerr
+	}
+
+	if outfile == "" {
+		log.Printf("[%s] No output filename set. Skipping!\n", cplid)
 	}
 
 	// We turn the string from the database into an array of regexp

@@ -102,7 +102,7 @@ func refresh_feeds (storedir string) {
 
 		// Check that feed is set to active
 		var active int64
-		scanerr = database.QueryRow("SELECT COUNT(active) FROM feed_status WHERE id = ?", feedid).Scan(&active)
+		scanerr = database.QueryRow("SELECT COUNT(*) FROM feed_status WHERE id = ? AND active > 0", feedid).Scan(&active)
 		if scanerr != nil { log.Printf("[%d] Database error: %s\n", feedid, scanerr) }
 		if active == 0 {
 			log.Printf("[%d] Feed is NOT active\n", feedid)
