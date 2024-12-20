@@ -19,7 +19,8 @@ require github.com/mmcdole/gofeed v1.1.3
 require github.com/fasthttp/router v1.4.4
 
 require (
+	github.com/fsnotify/fsnotify v1.4.9 // indirect
 	github.com/kr/pretty v0.3.1 // indirect
 	github.com/valyala/fasthttp v1.34.0
-	golang.org/x/net v0.7.0 // indirect
+	golang.org/x/net v0.33.0 // indirect
 )
