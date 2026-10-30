@@ -1,3 +1,6 @@
+CGO_ENABLED ?= 0
+export CGO_ENABLED
+
 VERSION := $(shell git rev-parse --short HEAD)
 
 GOLDFLAGS += -X main.version=$(VERSION)

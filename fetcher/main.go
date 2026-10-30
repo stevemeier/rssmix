@@ -19,7 +19,6 @@ import "sync"
 import "time"
 
 // SQL modules
-import _ "github.com/mattn/go-sqlite3"
 import "github.com/jmoiron/sqlx"
 
 // Configuration
@@ -79,7 +78,7 @@ func main() {
 	// Open database
 	log.Printf("Opening database (type: %s)\n", k.String("database.type"))
 	var dberr error
-	database, dberr = sqlx.Open(k.String("database.type"), k.String("database.url"))
+	database, dberr = sqlx.Connect(k.String("database.type"), k.String("database.url"))
 	if dberr != nil {
 		log.Fatal(dberr)
 	}

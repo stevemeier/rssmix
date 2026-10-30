@@ -13,7 +13,6 @@ import "github.com/mmcdole/gofeed"
 import "github.com/gorilla/feeds"
 
 // SQL modules
-import _ "github.com/mattn/go-sqlite3"
 import "github.com/jmoiron/sqlx"
 
 // Configuration
@@ -36,7 +35,7 @@ func main() {
 	// Database connection
 	log.Printf("Opening database (type: %s)\n", k.String("database.type"))
 	var dberr error
-        database, dberr = sqlx.Open(k.String("database.type"), k.String("database.url"))
+        database, dberr = sqlx.Connect(k.String("database.type"), k.String("database.url"))
 	if dberr != nil { log.Fatal(dberr) }
 	defer database.Close()
 

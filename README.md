@@ -56,7 +56,24 @@ There are currently no indices but these may be helpful in a big(ger) installati
 
 ## Compiling
 
-A Makefile is provided, so running just `make` should build all four binaries.
+Go 1.26 or newer is required. A Makefile is provided, so running `make`
+builds all four binaries with `CGO_ENABLED=0` by default. Cross-compilation does
+not require a C toolchain, for example:
+
+```sh
+CGO_ENABLED=0 GOOS=linux GOARCH=amd64 make
+```
+
+SQLite uses `modernc.org/sqlite` (pure Go). Existing SQLite files and the
+configuration value `database.type: sqlite3` remain supported; no database
+conversion is needed. The compatibility driver in `lib/sqlite.go` preserves
+a five-second busy timeout on every connection, with DSN overrides supported.
+Run library tests separately because `lib` is a nested Go module:
+
+```sh
+CGO_ENABLED=0 go test ./...
+(cd lib && CGO_ENABLED=0 go test ./...)
+```
 
 ## Configuration
 
