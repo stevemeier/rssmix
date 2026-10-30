@@ -1,6 +1,8 @@
 package main
 
 import "log"
+import "io/ioutil"
+import "path/filepath"
 import "os"
 import "regexp"
 import "sort"
@@ -32,7 +34,7 @@ func main() {
         log.Printf("Loaded config from %s\n", k.String("configfile"))
 
 	// Database connection
-	log.Printf("Opening database: %s\n", k.String("database.url"))
+	log.Printf("Opening database (type: %s)\n", k.String("database.type"))
 	var dberr error
         database, dberr = sqlx.Open(k.String("database.type"), k.String("database.url"))
 	if dberr != nil { log.Fatal(dberr) }
@@ -80,6 +82,7 @@ func update_compilation (cplid string) (bool, error) {
 
 	if outfile == "" {
 		log.Printf("[%s] No output filename set. Skipping!\n", cplid)
+		return false, nil
 	}
 
 	// We turn the string from the database into an array of regexp
@@ -101,6 +104,7 @@ func update_compilation (cplid string) (bool, error) {
 		return false, ferr
 	}
 
+	defer rows.Close()
 	for rows.Next() {
 		var nextfile string
 		scanerr := rows.Scan(&nextfile)
@@ -117,15 +121,16 @@ func update_compilation (cplid string) (bool, error) {
 	for _, file := range files {
 		log.Printf("[%s] Parsing %s\n", cplid, file)
 		reader, openerr := os.Open(file)
+		if openerr != nil { log.Println(openerr); continue }
 		input, parseerr := fp.Parse(reader)
-		if openerr != nil || parseerr != nil { continue }
+		reader.Close()
+		if parseerr != nil { log.Println(parseerr); continue }
 
 	        for _, item := range input.Items {
 			nextitem := transform_item(item)
 			// Apply filter
-			if (len(filter_inc) == 0 && len(filter_exc) == 0) ||
-			   (len(filter_inc) > 0 &&  match_any(nextitem.Title, filter_inc)) ||
-			   (len(filter_exc) > 0 && !match_any(nextitem.Title, filter_exc)) {
+			if (len(filter_inc) == 0 || match_any(nextitem.Title, filter_inc)) &&
+			   (len(filter_exc) == 0 || !match_any(nextitem.Title, filter_exc)) {
 				// Neither include nor exlcude is set
 				// Include is set and matches
 				// Exclude is set and does not match
@@ -140,23 +145,24 @@ func update_compilation (cplid string) (bool, error) {
 	sort.Slice(output.Items, func(i, j int) bool { return (output.Items[i].Created).After((output.Items[j].Created)) })
 
 	// Limit to most recent
-	if k.Int("items.max") > 0 {
+	if k.Int("items.max") > 0 && len(output.Items) > k.Int("items.max") {
 		output.Items = output.Items[:k.Int("items.max")]
 	}
 
 	// Output
 	log.Printf("[%s] Writing to %s\n", cplid, outfile)
-	ofh, oferr := os.OpenFile(outfile, os.O_RDWR|os.O_CREATE, 0644)
+	ofh, oferr := ioutil.TempFile(filepath.Dir(outfile), ".rssmix-compilation-*")
 	if oferr != nil {
 		log.Println(oferr)
 		return false, oferr
 	}
-	defer ofh.Close()
-
+	defer os.Remove(ofh.Name())
 	werr := output.WriteRss(ofh)
-	if werr != nil { log.Println(werr) }
-
-	return werr == nil, werr
+	if werr != nil { ofh.Close(); return false, werr }
+	if err := ofh.Chmod(0644); err != nil { ofh.Close(); return false, err }
+	if err := ofh.Close(); err != nil { return false, err }
+	if err := os.Rename(ofh.Name(), outfile); err != nil { return false, err }
+	return true, nil
 }
 
 func transform_item (in *gofeed.Item) (feeds.Item) {
@@ -212,6 +218,7 @@ func compilations_needing_update () ([]string) {
 		return result
 	}
 
+	defer rows.Close()
 	for rows.Next() {
 		var cplid string
 		scanerr := rows.Scan(&cplid)

@@ -33,7 +33,7 @@ func main() {
         log.Printf("Loaded config from %s\n", k.String("configfile"))
 
 	// Open database
-	log.Printf("Opening database: %s\n", k.String("database.url"))
+	log.Printf("Opening database (type: %s)\n", k.String("database.type"))
 	var dberr error
 	database, dberr = sqlx.Open(k.String("database.type"), k.String("database.url"))
 	if dberr != nil { log.Fatal(dberr) }
@@ -80,6 +80,7 @@ func compilations_to_publish () ([]PublishItem) {
                 return result
         }
 
+	defer rows.Close()
 	for rows.Next() {
 		var cplid string
 		var filename string
@@ -96,7 +97,8 @@ func compilations_to_publish () ([]PublishItem) {
 }
 
 func published_successfully (cplid string) (bool, error) {
-	dbres, dberr := database.Exec(`UPDATE compilation.status SET published = ? WHERE id = ?`, time.Now().Unix(), cplid)
-	affected, _ := dbres.RowsAffected()
-	return affected == 1, dberr
+	dbres, dberr := database.Exec(`UPDATE compilation_status SET published = ? WHERE id = ?`, time.Now().Unix(), cplid)
+	if dberr != nil { return false, dberr }
+	affected, err := dbres.RowsAffected()
+	return affected == 1, err
 }

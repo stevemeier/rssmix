@@ -106,7 +106,7 @@ func main () {
 	routes.ANY("/", http_handler_unknown_path)
 	routes.ANY("/(.*)", http_handler_unknown_path)
 
-	log.Printf("Opening database: %s\n", k.String("database.url"))
+	log.Printf("Opening database (type: %s)\n", k.String("database.type"))
 	var dberr error
 	database, dberr = sqlx.Open(k.String("database.type"), k.String("database.url"))
 	if dberr != nil { log.Fatal(dberr) }
@@ -174,7 +174,12 @@ func http_handler_update_compilation (ctx *fasthttp.RequestCtx) {
 	}
 
 	// Retrieve the password for the compilation
-	cplpw := compilation_password(cplid)
+	cplpw, pwerr := compilation_password(cplid)
+	if pwerr != nil {
+		log.Printf("[%s] Database error: %s\n", cplid, pwerr)
+		ctx.SetStatusCode(fasthttp.StatusInternalServerError)
+		return
+	}
 
 	if len(cplpw) > 0 && userpw == "" {
 		// Compilation has a password but none was provided
@@ -211,7 +216,7 @@ func http_handler_update_compilation (ctx *fasthttp.RequestCtx) {
 				_, feedid, _ = add_feed_to_catalogue(url)
 			}
 			_, execerr := tx.Exec("INSERT INTO compilation_content (id, feed_id) VALUES (?, ?)", cplid, feedid)
-			if execerr != nil { log.Printf("[%s] Database error: %s\n", cplid, execerr) }
+			if execerr != nil { log.Printf("[%s] Database error: %s\n", cplid, execerr); ctx.SetStatusCode(fasthttp.StatusInternalServerError); return }
 		}
 	}
 	if len(changes.Delete) > 0 {
@@ -222,26 +227,26 @@ func http_handler_update_compilation (ctx *fasthttp.RequestCtx) {
 			exists, feedid = url_in_catalogue(url)
 			if exists {
 				_, execerr := tx.Exec("DELETE FROM compilation_content WHERE id = ? AND feed_id = ?", cplid, feedid)
-				if execerr != nil { log.Printf("[%s] Database error: %s\n", cplid, execerr) }
+				if execerr != nil { log.Printf("[%s] Database error: %s\n", cplid, execerr); ctx.SetStatusCode(fasthttp.StatusInternalServerError); return }
 			}
 		}
 	}
 	if changes.Password != "" {
 		// works
 		_, execerr := tx.Exec("UPDATE compilation SET password = ? WHERE id = ?", changes.Password, cplid)
-		if execerr != nil { log.Printf("[%s] Database error: %s\n", cplid, execerr) }
+		if execerr != nil { log.Printf("[%s] Database error: %s\n", cplid, execerr); ctx.SetStatusCode(fasthttp.StatusInternalServerError); return }
 	}
 	if changes.Name != "" {
 		_, execerr := tx.Exec("UPDATE compilation SET name = ? WHERE id = ?", lib.Maxlen(changes.Name, 127), cplid)
-		if execerr != nil { log.Printf("[%s] Database error: %s\n", cplid, execerr) }
+		if execerr != nil { log.Printf("[%s] Database error: %s\n", cplid, execerr); ctx.SetStatusCode(fasthttp.StatusInternalServerError); return }
 	}
-	if len(changes.Filter.Include) > 0 {
+	if changes.Filter.Include != nil {
 		_, execerr := tx.Exec("UPDATE compilation SET filter_inc = ? WHERE id = ?", strings.Join(changes.Filter.Include, ","), cplid)
-		if execerr != nil { log.Printf("[%s] Database error: %s\n", cplid, execerr) }
+		if execerr != nil { log.Printf("[%s] Database error: %s\n", cplid, execerr); ctx.SetStatusCode(fasthttp.StatusInternalServerError); return }
 	}
-	if len(changes.Filter.Exclude) > 0 {
+	if changes.Filter.Exclude != nil {
 		_, execerr := tx.Exec("UPDATE compilation SET filter_exc = ? WHERE id = ?", strings.Join(changes.Filter.Exclude, ","), cplid)
-		if execerr != nil { log.Printf("[%s] Database error: %s\n", cplid, execerr) }
+		if execerr != nil { log.Printf("[%s] Database error: %s\n", cplid, execerr); ctx.SetStatusCode(fasthttp.StatusInternalServerError); return }
 	}
 
 	commiterr := tx.Commit()
@@ -266,7 +271,12 @@ func http_handler_delete_compilation (ctx *fasthttp.RequestCtx) {
 	}
 
 	// Retrieve the password for the compilation
-	cplpw := compilation_password(cplid)
+	cplpw, pwerr := compilation_password(cplid)
+	if pwerr != nil {
+		log.Printf("[%s] Database error: %s\n", cplid, pwerr)
+		ctx.SetStatusCode(fasthttp.StatusInternalServerError)
+		return
+	}
 
 	if len(cplpw) > 0 && userpw == "" {
 		// Compilation has a password but none was provided
@@ -289,9 +299,11 @@ func http_handler_delete_compilation (ctx *fasthttp.RequestCtx) {
 	defer tx.Rollback()
 
 	_, execerr = tx.Exec("DELETE FROM compilation_content WHERE id = ?", cplid)
-	if execerr != nil { log.Printf("[%s] Database error: %s\n", cplid, execerr) }
+	if execerr != nil { log.Printf("[%s] Database error: %s\n", cplid, execerr); ctx.SetStatusCode(fasthttp.StatusInternalServerError); return }
+	_, execerr = tx.Exec("DELETE FROM compilation_status WHERE id = ?", cplid)
+	if execerr != nil { log.Printf("[%s] Database error: %s\n", cplid, execerr); ctx.SetStatusCode(fasthttp.StatusInternalServerError); return }
 	_, execerr = tx.Exec("DELETE FROM compilation WHERE id = ?", cplid)
-	if execerr != nil { log.Printf("[%s] Database error: %s\n", cplid, execerr) }
+	if execerr != nil { log.Printf("[%s] Database error: %s\n", cplid, execerr); ctx.SetStatusCode(fasthttp.StatusInternalServerError); return }
 
 	commiterr := tx.Commit()
 	if commiterr != nil {
@@ -354,15 +366,15 @@ func http_handler_new_compilation (ctx *fasthttp.RequestCtx) {
 
 	_, execerr = tx.Exec("INSERT INTO compilation (id, password, name, filter_inc, filter_exc) VALUES (?, ?, ?, ?, ?)", cplid, newcpl.Password, lib.Maxlen(newcpl.Name, 127),
                                                                                                                             strings.Join(newcpl.Filter.Include,","), strings.Join(newcpl.Filter.Exclude,","))
-	if execerr != nil { log.Printf("[%s] Database error: %s\n", cplid, execerr) }
+	if execerr != nil { log.Printf("[%s] Database error: %s\n", cplid, execerr); ctx.SetStatusCode(fasthttp.StatusInternalServerError); return }
 	for _, value := range url2feedid {
 		_, execerr = tx.Exec("INSERT INTO compilation_content (id, feed_id) VALUES (?, ?)", cplid, value)
-		if execerr != nil { log.Printf("[%s] Database error: %s\n", cplid, execerr) }
+		if execerr != nil { log.Printf("[%s] Database error: %s\n", cplid, execerr); ctx.SetStatusCode(fasthttp.StatusInternalServerError); return }
 	}
 
 	// Add it to compilation_status as well, otherwise compiler will not pick it up
 	_, execerr = tx.Exec("INSERT INTO compilation_status VALUES (?, 0, 0)", cplid)
-	if execerr != nil { log.Printf("[%s] Database error: %s\n", cplid, execerr) }
+	if execerr != nil { log.Printf("[%s] Database error: %s\n", cplid, execerr); ctx.SetStatusCode(fasthttp.StatusInternalServerError); return }
 
 	commiterr := tx.Commit()
 	if commiterr != nil {
@@ -422,6 +434,7 @@ func http_handler_get_compilation (ctx *fasthttp.RequestCtx) {
 		return
 	}
 
+	defer rows.Close()
 	for rows.Next() {
 		var schema string
 		var urn string
@@ -446,11 +459,10 @@ func compilation_exists (s string) (bool) {
 	return count > 0
 }
 
-func compilation_password (s string) (string) {
+func compilation_password (s string) (string, error) {
 	var password string
 	scanerr := database.QueryRow("SELECT password FROM compilation WHERE id = ?", s).Scan(&password)
-	if scanerr != nil { log.Printf("[%s] Database error: %s\n", s, scanerr) }
-	return password
+	return password, scanerr
 }
 
 func add_feed_to_catalogue (s string) (bool, int64, error) {
@@ -468,7 +480,7 @@ func add_feed_to_catalogue (s string) (bool, int64, error) {
 
 	_, dberr := database.Exec("INSERT INTO feed (uschema, urn, created) VALUES (?,?,?)",
 					strings.ToLower(url.Scheme),
-					strings.ToLower(url.Host)+url.Path,
+					strings.ToLower(url.Host)+url.EscapedPath()+func() string { if url.ForceQuery || url.RawQuery != "" { return "?"+url.RawQuery }; return "" }(),
 					time.Now().Unix())
 	if dberr != nil {
 		log.Println(dberr)
@@ -500,7 +512,7 @@ func url_in_catalogue (s string) (bool, int64) {
 	var feedid int64
 	scanerr := database.QueryRow("SELECT id FROM feed WHERE uschema = ? AND urn = ?",
 					strings.ToLower(url.Scheme),
-					strings.ToLower(url.Host)+url.Path).Scan(&feedid)
+					strings.ToLower(url.Host)+url.EscapedPath()+func() string { if url.ForceQuery || url.RawQuery != "" { return "?"+url.RawQuery }; return "" }()).Scan(&feedid)
 
 	if scanerr == nil {
 		// success
@@ -572,7 +584,7 @@ func url_from_id (cplid string) (string) {
 }
 
 func log_request (ctx *fasthttp.RequestCtx) {
-	log.Printf("%s %s %s\n", ctx.Method(), ctx.Path(), ctx.PostBody())
+	log.Printf("%s %s\n", ctx.Method(), ctx.Path())
 }
 
 func verify_google_captcha (ctx *fasthttp.RequestCtx) (bool) {
