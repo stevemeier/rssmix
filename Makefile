@@ -12,15 +12,15 @@ clean:
 	rm -f rssmix-api rssmix-compiler rssmix-fetcher rssmix-publisher
 
 rssmix-api: FORCE
-	go build -o rssmix-api $(GOFLAGS) api/main.go
+	go build -trimpath -ldflags="-s -w" -o rssmix-api $(GOFLAGS) api/main.go
 
 rssmix-compiler: FORCE
-	go build -o rssmix-compiler $(GOFLAGS) ./compiler
+	go build -trimpath -ldflags="-s -w" -o rssmix-compiler $(GOFLAGS) ./compiler
 
 rssmix-fetcher: FORCE
-	go build -o rssmix-fetcher $(GOFLAGS) ./fetcher
+	go build -trimpath -ldflags="-s -w" -o rssmix-fetcher $(GOFLAGS) ./fetcher
 
 rssmix-publisher: FORCE
-	go build -o rssmix-publisher $(GOFLAGS) publisher/main.go
+	go build -trimpath -ldflags="-s -w" -o rssmix-publisher $(GOFLAGS) publisher/main.go
 
 FORCE: ;
