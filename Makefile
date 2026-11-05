@@ -3,8 +3,8 @@ export CGO_ENABLED
 
 VERSION := $(shell git rev-parse --short HEAD)
 
-GOLDFLAGS += -X main.version=$(VERSION)
-GOFLAGS = -ldflags "$(GOLDFLAGS)"
+GOLDFLAGS += -s -w -X main.version=$(VERSION)
+GOFLAGS = -trimpath -ldflags "$(GOLDFLAGS)"
 
 all: rssmix-api rssmix-compiler rssmix-fetcher rssmix-publisher
 
@@ -12,15 +12,15 @@ clean:
 	rm -f rssmix-api rssmix-compiler rssmix-fetcher rssmix-publisher
 
 rssmix-api: FORCE
-	go build -trimpath -ldflags="-s -w" -o rssmix-api $(GOFLAGS) api/main.go
+	go build -o rssmix-api $(GOFLAGS) api/main.go
 
 rssmix-compiler: FORCE
-	go build -trimpath -ldflags="-s -w" -o rssmix-compiler $(GOFLAGS) ./compiler
+	go build -o rssmix-compiler $(GOFLAGS) ./compiler
 
 rssmix-fetcher: FORCE
-	go build -trimpath -ldflags="-s -w" -o rssmix-fetcher $(GOFLAGS) ./fetcher
+	go build -o rssmix-fetcher $(GOFLAGS) ./fetcher
 
 rssmix-publisher: FORCE
-	go build -trimpath -ldflags="-s -w" -o rssmix-publisher $(GOFLAGS) publisher/main.go
+	go build -o rssmix-publisher $(GOFLAGS) publisher/main.go
 
 FORCE: ;
