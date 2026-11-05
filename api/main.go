@@ -192,6 +192,9 @@ func http_handler_update_compilation (ctx *fasthttp.RequestCtx) {
 		return
 	}
 
+	include, exclude, validFilters := encode_compilation_filters(ctx, changes.Filter.Include, changes.Filter.Exclude)
+	if !validFilters { return }
+
 	// Now we can modify the compilation
 	// Three things can be modified:
 	// - "add" contains an array of new feed URLs (just like in new compilation)
@@ -240,11 +243,11 @@ func http_handler_update_compilation (ctx *fasthttp.RequestCtx) {
 		if execerr != nil { log.Printf("[%s] Database error: %s\n", cplid, execerr); ctx.SetStatusCode(fasthttp.StatusInternalServerError); return }
 	}
 	if changes.Filter.Include != nil {
-		_, execerr := tx.Exec("UPDATE compilation SET filter_inc = ? WHERE id = ?", strings.Join(changes.Filter.Include, ","), cplid)
+		_, execerr := tx.Exec("UPDATE compilation SET filter_inc = ? WHERE id = ?", include, cplid)
 		if execerr != nil { log.Printf("[%s] Database error: %s\n", cplid, execerr); ctx.SetStatusCode(fasthttp.StatusInternalServerError); return }
 	}
 	if changes.Filter.Exclude != nil {
-		_, execerr := tx.Exec("UPDATE compilation SET filter_exc = ? WHERE id = ?", strings.Join(changes.Filter.Exclude, ","), cplid)
+		_, execerr := tx.Exec("UPDATE compilation SET filter_exc = ? WHERE id = ?", exclude, cplid)
 		if execerr != nil { log.Printf("[%s] Database error: %s\n", cplid, execerr); ctx.SetStatusCode(fasthttp.StatusInternalServerError); return }
 	}
 
@@ -331,6 +334,9 @@ func http_handler_new_compilation (ctx *fasthttp.RequestCtx) {
 		return
 	}
 
+	include, exclude, validFilters := encode_compilation_filters(ctx, newcpl.Filter.Include, newcpl.Filter.Exclude)
+	if !validFilters { return }
+
 	cplid := generate_id(k.Int("id.length"))
 
 	// get the IDs for the feeds
@@ -364,7 +370,7 @@ func http_handler_new_compilation (ctx *fasthttp.RequestCtx) {
 	defer tx.Rollback()
 
 	_, execerr = tx.Exec("INSERT INTO compilation (id, password, name, filter_inc, filter_exc) VALUES (?, ?, ?, ?, ?)", cplid, newcpl.Password, lib.Maxlen(newcpl.Name, 127),
-                                                                                                                            strings.Join(newcpl.Filter.Include,","), strings.Join(newcpl.Filter.Exclude,","))
+                                                                                                                            include, exclude)
 	if execerr != nil { log.Printf("[%s] Database error: %s\n", cplid, execerr); ctx.SetStatusCode(fasthttp.StatusInternalServerError); return }
 	for _, value := range url2feedid {
 		_, execerr = tx.Exec("INSERT INTO compilation_content (id, feed_id) VALUES (?, ?)", cplid, value)
@@ -418,11 +424,15 @@ func http_handler_get_compilation (ctx *fasthttp.RequestCtx) {
 	scanerr = database.QueryRow("SELECT id, name, COALESCE(filter_inc,''), COALESCE(filter_exc,'') FROM compilation WHERE id = ?", cplid).Scan(&thiscpl.Id, &thiscpl.Name, &filter_inc, &filter_exc)
 	if scanerr != nil { log.Printf("[%s] Database error: %s\n", cplid, scanerr) }
 
-	// To get an empty array, we init it first and only split the DB data, if it's not empty
-	thiscpl.Filter.Include = []string{}
-	thiscpl.Filter.Exclude = []string{}
-	if len(filter_inc) > 0 { thiscpl.Filter.Include = strings.Split(filter_inc, ",") }
-	if len(filter_exc) > 0 { thiscpl.Filter.Exclude = strings.Split(filter_exc, ",") }
+	if scanerr != nil { ctx.SetStatusCode(fasthttp.StatusInternalServerError); return }
+	var filtererr error
+	thiscpl.Filter.Include, filtererr = lib.DecodeFilterList(filter_inc)
+	if filtererr == nil { thiscpl.Filter.Exclude, filtererr = lib.DecodeFilterList(filter_exc) }
+	if filtererr != nil {
+		log.Printf("[%s] Invalid stored filters: %s", cplid, filtererr)
+		ctx.SetStatusCode(fasthttp.StatusInternalServerError)
+		return
+	}
 
 	rows, qerr := database.Query(`SELECT feed.uschema, feed.urn FROM feed
 				      INNER JOIN compilation_content ON feed.id=compilation_content.feed_id
@@ -632,4 +642,21 @@ func verify_google_captcha (ctx *fasthttp.RequestCtx) (bool) {
 
 func trim_dotrss (s string) (string) {
 	return strings.TrimSuffix(s, ".rss")
+}
+
+// Validate both lists before making any persistent request changes.
+func encode_compilation_filters(ctx *fasthttp.RequestCtx, include, exclude []string) (string, string, bool) {
+	inc, err := lib.EncodeFilterList(include)
+	if err == nil {
+		var exc string
+		exc, err = lib.EncodeFilterList(exclude)
+		if err == nil {
+			return inc, exc, true
+		}
+	}
+	ctx.Response.Header.Set("Content-Type", "application/json")
+	ctx.SetStatusCode(fasthttp.StatusBadRequest)
+	response, _ := json.Marshal(map[string]string{"error": "invalid filter: " + err.Error()})
+	ctx.Write(response)
+	return "", "", false
 }

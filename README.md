@@ -157,3 +157,42 @@ replacing its binary; the compiler can continue running. Backoff delays,
 per-host pacing, `active=0` behavior and download validation are unchanged.
 Back up SQLite using its backup facility; cached feed bodies and generated
 compilations remain separate files and still need their own backups.
+
+### Filter lists containing commas
+
+New API writes store each include/exclude list as a versioned JSON array in
+its existing `filter_inc` or `filter_exc` TEXT column. The storage prefix is
+`(?rssmix-filters:v1)`, followed by an array, for example:
+
+```text
+(?rssmix-filters:v1)["^Folge [0-9]{1,3}$","^Alpha,Beta$"]
+```
+
+The prefix distinguishes the new format from legacy regular expressions,
+including character classes such as `["abc"]` that look like JSON arrays.
+No new columns or automatic rewriting of existing filter values are needed.
+The HTTP API continues accepting and returning ordinary string arrays; clients
+must not add the storage prefix to their request patterns.
+
+Existing untagged values retain their comma-separated interpretation, including
+the historical treatment of invalid fragments. A previously stored expression
+containing commas cannot be repaired unambiguously: resubmit the intended list
+through the updated API (or write the tagged format explicitly). Existing
+compilations are not automatically migrated.
+
+For PATCH, an omitted list or `null` leaves that list unchanged; `[]` clears only
+that list. New regexps are validated before request changes are saved; invalid
+patterns return HTTP 400. Within each list, alternatives are ORed. Include and
+exclude are both applied: include must match (unless empty), and exclude must
+not match. An empty string inside a new list is an actual empty regexp, which
+matches every title; use `[]` to clear a list.
+
+Corrupt or unsupported tagged data is an error, never a fallback to legacy
+splitting. Invalid tagged regexps stop compilation and keep the previous output
+and successful snapshot. Filter changes continue to queue a rebuild even when
+source content has not changed.
+
+Deploy the updated compiler before enabling the updated API to write new lists.
+An old compiler cannot read the tagged format. The fetcher is unchanged. For an
+installation that runs only fetcher/compiler, only the compiler binary needs to
+be replaced for this patch. Rebuild consumers of the local `lib` module normally.

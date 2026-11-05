@@ -9,7 +9,6 @@ import "path/filepath"
 import "os"
 import "regexp"
 import "sort"
-import "strings"
 import "time"
 
 import "github.com/mmcdole/gofeed"
@@ -91,13 +90,15 @@ func writeCompilation(snapshot compilationSnapshot) error {
 		return fmt.Errorf("no assigned sources; keeping previous output")
 	}
 	fp := gofeed.NewParser()
-	var filter_inc, filter_exc []*regexp.Regexp
-	if snapshot.Include != "" {
-		filter_inc = string_to_regexp(snapshot.Include, ",")
+	filter_inc, err := lib.CompileFilterList(snapshot.Include)
+	if err != nil {
+		return fmt.Errorf("include filters: %w", err)
 	}
-	if snapshot.Exclude != "" {
-		filter_exc = string_to_regexp(snapshot.Exclude, ",")
+	filter_exc, err := lib.CompileFilterList(snapshot.Exclude)
+	if err != nil {
+		return fmt.Errorf("exclude filters: %w", err)
 	}
+
 	output := &feeds.Feed{Title: snapshot.Name, Created: time.Now(), Link: &feeds.Link{Href: snapshot.URL}}
 	for _, source := range snapshot.Sources {
 		if !source.StatusKnown {
@@ -208,19 +209,6 @@ func transform_item(in *gofeed.Item) feeds.Item {
 	}
 
 	return out
-}
-
-func string_to_regexp(s string, sep string) []*regexp.Regexp {
-	var result []*regexp.Regexp
-
-	for _, i := range strings.Split(s, sep) {
-		re, err := regexp.Compile(i)
-		if err == nil {
-			result = append(result, re)
-		}
-	}
-
-	return result
 }
 
 func match_any(s string, re []*regexp.Regexp) bool {
