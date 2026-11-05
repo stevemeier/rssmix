@@ -19,6 +19,7 @@ import (
 )
 
 func TestConditionalGET(t *testing.T) {
+	state := testStateStore(t)
 	calls := 0
 	lm := "Sun, 25 Oct 2026 11:28:45 GMT"
 	s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -32,7 +33,7 @@ func TestConditionalGET(t *testing.T) {
 			}
 			w.Header().Set("ETag", `W/"version-1"`)
 			w.Header().Set("Last-Modified", lm)
-			fmt.Fprint(w, "feed-one")
+			fmt.Fprint(w, testRSSBody("feed-one"))
 		} else {
 			if r.Header.Get("If-None-Match") != `W/"version-1"` || r.Header.Get("If-Modified-Since") != lm {
 				t.Error("missing validators")
@@ -42,12 +43,12 @@ func TestConditionalGET(t *testing.T) {
 	}))
 	defer s.Close()
 	path := filepath.Join(t.TempDir(), "feed")
-	first, err := fetchFeed(s.Client(), s.URL, path)
+	first, err := fetchFeed(state, s.Client(), s.URL, path)
 	if err != nil || !first.changed {
 		t.Fatalf("first: %+v %v", first, err)
 	}
 	before, _ := os.Stat(path)
-	second, err := fetchFeed(s.Client(), s.URL, path)
+	second, err := fetchFeed(state, s.Client(), s.URL, path)
 	if err != nil || second.changed {
 		t.Fatalf("second: %+v %v", second, err)
 	}
@@ -58,7 +59,8 @@ func TestConditionalGET(t *testing.T) {
 }
 
 func TestUnconditionalAndSameLengthChanges(t *testing.T) {
-	body := "AAAA"
+	state := testStateStore(t)
+	body := testRSSBody("AAAA")
 	s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("If-None-Match") != "" || r.Header.Get("If-Modified-Since") != "" {
 			t.Error("unexpected validators")
@@ -71,39 +73,41 @@ func TestUnconditionalAndSameLengthChanges(t *testing.T) {
 		body    string
 		changed bool
 	}{{"AAAA", true}, {"AAAA", false}, {"BBBB", true}, {"C", true}} {
-		body = tc.body
-		got, err := fetchFeed(s.Client(), s.URL, path)
+		body = testRSSBody(tc.body)
+		got, err := fetchFeed(state, s.Client(), s.URL, path)
 		if err != nil || got.changed != tc.changed {
 			t.Fatalf("case %d: %+v %v", i, got, err)
 		}
 		b, _ := ioutil.ReadFile(path)
-		if string(b) != tc.body {
+		if string(b) != body {
 			t.Fatalf("content %q", b)
 		}
 	}
 }
 
 func TestStaleValidatorsNotUsed(t *testing.T) {
+	state := testStateStore(t)
 	s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("If-None-Match") != "" {
 			t.Error("stale ETag sent")
 		}
-		fmt.Fprint(w, "new")
+		fmt.Fprint(w, testRSSBody("new"))
 	}))
 	defer s.Close()
 	path := filepath.Join(t.TempDir(), "feed")
 	ioutil.WriteFile(path, []byte("old"), 0644)
-	saveValidators(path+".http.json", feedValidators{URL: s.URL, ETag: `"old"`, SHA256: "wrong"})
-	if _, err := fetchFeed(s.Client(), s.URL, path); err != nil {
+	state.saveValidators(feedValidators{URL: s.URL, ETag: `"old"`, SHA256: "wrong"})
+	if _, err := fetchFeed(state, s.Client(), s.URL, path); err != nil {
 		t.Fatal(err)
 	}
 	os.Remove(path)
-	if _, err := fetchFeed(s.Client(), s.URL, path); err != nil {
+	if _, err := fetchFeed(state, s.Client(), s.URL, path); err != nil {
 		t.Fatal(err)
 	}
 }
 
 func TestDownloadFailurePreservesFiles(t *testing.T) {
+	state := testStateStore(t)
 	for _, kind := range []string{"429", "500", "partial", "oversize", "unexpected304"} {
 		t.Run(kind, func(t *testing.T) {
 			s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -126,7 +130,7 @@ func TestDownloadFailurePreservesFiles(t *testing.T) {
 			path := filepath.Join(dir, "feed")
 			ioutil.WriteFile(path, []byte("original"), 0644)
 			ioutil.WriteFile(path+".http.json", []byte("old metadata"), 0600)
-			if _, err := fetchFeed(s.Client(), s.URL, path); err == nil {
+			if _, err := fetchFeed(state, s.Client(), s.URL, path); err == nil {
 				t.Fatal("expected error")
 			}
 			b, _ := ioutil.ReadFile(path)
@@ -152,6 +156,7 @@ func (zeroReader) Read(p []byte) (int, error) {
 }
 
 func TestRedirectPacing(t *testing.T) {
+	state := testStateStore(t)
 	calls := 0
 	s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		calls++
@@ -159,7 +164,7 @@ func TestRedirectPacing(t *testing.T) {
 			http.Redirect(w, r, "/feed", 302)
 			return
 		}
-		fmt.Fprint(w, "feed")
+		fmt.Fprint(w, testRSSBody("feed"))
 	}))
 	defer s.Close()
 	now := time.Now()
@@ -169,7 +174,7 @@ func TestRedirectPacing(t *testing.T) {
 	waited := time.Duration(0)
 	transport.wait = func(ctx context.Context, d time.Duration) error { waited += d; now = now.Add(d); return nil }
 	client := &http.Client{Transport: transport}
-	if _, err := fetchFeed(client, s.URL+"/start", filepath.Join(t.TempDir(), "feed")); err != nil {
+	if _, err := fetchFeed(state, client, s.URL+"/start", filepath.Join(t.TempDir(), "feed")); err != nil {
 		t.Fatal(err)
 	}
 	if calls != 2 || waited != 2*time.Second {
@@ -204,7 +209,7 @@ func TestRefreshSQLiteStatus(t *testing.T) {
 		}
 	}
 	status := 200
-	body := "feed-v1"
+	body := testRSSBody("feed-v1")
 	requests := 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requests++
@@ -230,6 +235,7 @@ func TestRefreshSQLiteStatus(t *testing.T) {
 	k = koanf.New(".")
 	k.Set("subdirs", 0)
 	feedTransport = newHostTransport(http.DefaultTransport)
+	attachState(t, feedTransport, db.DB)
 	feedTransport.gap = 0
 	refresh_feeds(dir)
 	var path string
@@ -253,7 +259,7 @@ func TestRefreshSQLiteStatus(t *testing.T) {
 	if updated != 42 {
 		t.Fatal("identical 200 marked feed changed")
 	}
-	body = "feed-v2"
+	body = testRSSBody("feed-v2")
 	refresh_feeds(dir)
 	db.QueryRow("SELECT updated FROM feed_status WHERE id=1").Scan(&updated)
 	if updated == 42 {

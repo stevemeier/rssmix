@@ -11,7 +11,6 @@ import "net/http"
 import "os"
 import "strconv"
 import "context"
-import "encoding/json"
 import "errors"
 import "net/url"
 import "strings"
@@ -57,14 +56,6 @@ func main() {
 	// Set TLS verification flag
 	http.DefaultTransport.(*http.Transport).TLSClientConfig = &tls.Config{InsecureSkipVerify: k.Bool("tls.insecure")}
 
-	// Persist host cooldowns and the feed to resume after a failure.
-	if err := os.MkdirAll(k.String("workdir"), 0755); err != nil {
-		log.Fatal(err)
-	}
-	if err := feedTransport.loadState(filepath.Join(k.String("workdir"), "rssmix-fetcher-state.json")); err != nil {
-		log.Fatal(err)
-	}
-
 	// Refresh interval
 	interval := time.Duration(k.Int("interval")) * time.Minute
 	if interval <= 0 {
@@ -84,6 +75,17 @@ func main() {
 	}
 	defer database.Close()
 	if err := lib.EnsureCompilationState(database.DB); err != nil {
+		log.Fatal(err)
+	}
+
+	state, err := openStateStore(database.DB)
+	if err != nil {
+		log.Fatal(err)
+	}
+	if err := state.importLegacy(storedir, k.Int("subdirs")); err != nil {
+		log.Fatal(err)
+	}
+	if err := feedTransport.loadState(state); err != nil {
 		log.Fatal(err)
 	}
 
@@ -178,7 +180,7 @@ func refresh_feeds(storedir string) {
 			passOK[host] = true
 		}
 		log.Printf("[%d] Checking %s", feedid, fstatus.URL)
-		result, err := fetchFeed(netClient, fstatus.URL, fstatus.File)
+		result, err := fetchFeed(feedTransport.store, netClient, fstatus.URL, fstatus.File)
 		if err != nil {
 			passOK[host] = false
 			var paused *hostPausedError
@@ -227,10 +229,11 @@ func sha256sum(s string) string {
 // without metadata are fetched unconditionally once; filesystem mtime is not an
 // HTTP Last-Modified value.
 type feedValidators struct {
-	URL          string `json:"url"`
-	ETag         string `json:"etag,omitempty"`
-	LastModified string `json:"last_modified,omitempty"`
-	SHA256       string `json:"sha256"`
+	ValidationVersion int    `json:"validation_version,omitempty"`
+	URL               string `json:"url"`
+	ETag              string `json:"etag,omitempty"`
+	LastModified      string `json:"last_modified,omitempty"`
+	SHA256            string `json:"sha256"`
 }
 
 type fetchResult struct {
@@ -255,23 +258,29 @@ func fileHash(path string) (string, error) {
 	return fmt.Sprintf("%x", h.Sum(nil)), nil
 }
 
-func fetchFeed(client *http.Client, address, path string) (fetchResult, error) {
+func fetchFeed(state *stateStore, client *http.Client, address, path string) (fetchResult, error) {
 	var result fetchResult
 	oldHash, _ := fileHash(path)
 	result.hash = oldHash
-	var validators feedValidators
-	if b, err := ioutil.ReadFile(path + ".http.json"); err == nil {
-		if err := json.Unmarshal(b, &validators); err != nil {
-			validators = feedValidators{}
-		}
+	validators, err := state.loadValidators(address)
+	if err != nil {
+		return result, fmt.Errorf("cannot load HTTP validators: %w", err)
 	}
+
 	req, err := http.NewRequest(http.MethodGet, address, nil)
 	if err != nil {
 		return result, err
 	}
 	// Identify the feed reader explicitly instead of using Go's default User-Agent.
 	req.Header.Set("User-Agent", "rssmix/1.0")
+	cacheValidated := false
 	if oldHash != "" && validators.URL == address && validators.SHA256 == oldHash {
+		cacheValidated = validators.ValidationVersion == feedValidationVersion
+		if !cacheValidated {
+			cacheValidated = validateFeedFile(path) == nil
+		}
+	}
+	if cacheValidated {
 		if validators.ETag != "" {
 			req.Header.Set("If-None-Match", validators.ETag)
 		}
@@ -287,8 +296,14 @@ func fetchFeed(client *http.Client, address, path string) (fetchResult, error) {
 	defer resp.Body.Close()
 	result.status = resp.Status
 	if resp.StatusCode == http.StatusNotModified {
-		if oldHash == "" || (req.Header.Get("If-None-Match") == "" && req.Header.Get("If-Modified-Since") == "") {
+		if !cacheValidated || (req.Header.Get("If-None-Match") == "" && req.Header.Get("If-Modified-Since") == "") {
 			return result, fmt.Errorf("unexpected 304 without a validated local feed")
+		}
+		if validators.ValidationVersion != feedValidationVersion {
+			validators.ValidationVersion = feedValidationVersion
+			if err := state.saveValidators(validators); err != nil {
+				log.Printf("Cannot save HTTP validation marker: %s", err)
+			}
 		}
 		return result, nil
 	}
@@ -320,6 +335,9 @@ func fetchFeed(client *http.Client, address, path string) (fetchResult, error) {
 	if err := f.Close(); err != nil {
 		return result, err
 	}
+	if err := validateFeedFile(f.Name()); err != nil {
+		return result, fmt.Errorf("download rejected; existing cache kept: %w", err)
+	}
 	newHash := fmt.Sprintf("%x", h.Sum(nil))
 	result.hash = newHash
 	result.changed = oldHash != newHash
@@ -330,9 +348,9 @@ func fetchFeed(client *http.Client, address, path string) (fetchResult, error) {
 		}
 	}
 	// Never keep validators from an older 200 response if new ones are absent.
-	v := feedValidators{URL: address, ETag: resp.Header.Get("ETag"),
+	v := feedValidators{ValidationVersion: feedValidationVersion, URL: address, ETag: resp.Header.Get("ETag"),
 		LastModified: resp.Header.Get("Last-Modified"), SHA256: newHash}
-	if err := saveValidators(path+".http.json", v); err != nil {
+	if err := state.saveValidators(v); err != nil {
 		// The feed itself has been stored successfully: still notify compiler.
 		// Hash validation prevents stale metadata from suppressing the next GET.
 		log.Printf("Cannot save HTTP validators: %s", err)
@@ -340,28 +358,8 @@ func fetchFeed(client *http.Client, address, path string) (fetchResult, error) {
 	return result, nil
 }
 
-func saveValidators(path string, v feedValidators) error {
-	b, err := json.Marshal(v)
-	if err != nil {
-		return err
-	}
-	f, err := ioutil.TempFile(filepath.Dir(path), ".rssmix-http-*")
-	if err != nil {
-		return err
-	}
-	defer os.Remove(f.Name())
-	if _, err := f.Write(b); err != nil {
-		f.Close()
-		return err
-	}
-	if err := f.Close(); err != nil {
-		return err
-	}
-	return os.Rename(f.Name(), path)
-}
-
 // State is per hostname, shared by HTTP/HTTPS and redirects. Only one fetcher
-// process should own a workdir. All state mutations are serialized and atomic.
+// process should own a database. All state mutations are serialized and atomic.
 type feedAddressKey struct{}
 
 type hostState struct {
@@ -375,13 +373,13 @@ type diskState struct {
 	Hosts   map[string]*hostState `json:"hosts"`
 }
 type hostTransport struct {
-	base      http.RoundTripper
-	mu        sync.Mutex
-	states    map[string]*hostState
-	statePath string
-	gap       time.Duration
-	now       func() time.Time
-	wait      func(context.Context, time.Duration) error
+	base   http.RoundTripper
+	mu     sync.Mutex
+	states map[string]*hostState
+	store  *stateStore
+	gap    time.Duration
+	now    func() time.Time
+	wait   func(context.Context, time.Duration) error
 }
 type hostPausedError struct {
 	Host  string
@@ -420,56 +418,22 @@ func (t *hostTransport) stateLocked(host string) *hostState {
 	}
 	return s
 }
-func (t *hostTransport) loadState(path string) error {
+func (t *hostTransport) loadState(store *stateStore) error {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	b, err := ioutil.ReadFile(path)
-	if err != nil && !os.IsNotExist(err) {
+	states, err := store.loadHosts()
+	if err != nil {
 		return err
 	}
-	if err == nil {
-		var disk diskState
-		if err := json.Unmarshal(b, &disk); err != nil {
-			return fmt.Errorf("invalid backoff state %s: %w", path, err)
-		}
-		if disk.Version != 1 || disk.Hosts == nil {
-			return fmt.Errorf("unsupported backoff state: %s", path)
-		}
-		for host, s := range disk.Hosts {
-			if s == nil || s.Failures < 0 || s.Failures > 1000000 || host == "" {
-				return fmt.Errorf("invalid host entry in %s", path)
-			}
-		}
-		t.states = disk.Hosts
-	}
-	t.statePath = path
-	return t.persistLocked()
+	t.states, t.store = states, store
+	return nil
 }
-func (t *hostTransport) persistLocked() error {
-	if t.statePath == "" {
+func (t *hostTransport) persistLocked(host string) error {
+	if t.store == nil {
+		// Transport-only tests can use in-memory scheduling.
 		return nil
 	}
-	b, err := json.Marshal(diskState{Version: 1, Hosts: t.states})
-	if err != nil {
-		return err
-	}
-	f, err := ioutil.TempFile(filepath.Dir(t.statePath), ".rssmix-state-*")
-	if err != nil {
-		return err
-	}
-	defer os.Remove(f.Name())
-	if _, err = f.Write(b); err != nil {
-		f.Close()
-		return err
-	}
-	if err = f.Sync(); err != nil {
-		f.Close()
-		return err
-	}
-	if err = f.Close(); err != nil {
-		return err
-	}
-	return os.Rename(f.Name(), t.statePath)
+	return t.store.saveHost(host, t.states[host])
 }
 
 // 5, 10, 20, 40, 60 minutes; the local exponential component is capped.
@@ -512,7 +476,7 @@ func (t *hostTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 		delay := s.Next.Sub(now)
 		if delay <= 0 {
 			s.Next = now.Add(t.gap)
-			err := t.persistLocked()
+			err := t.persistLocked(host)
 			t.mu.Unlock()
 			if err != nil {
 				return nil, fmt.Errorf("cannot persist request scheduling: %w", err)
@@ -548,7 +512,7 @@ func (t *hostTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 		}
 		until = s.Until
 		failures := s.Failures
-		stateErr := t.persistLocked()
+		stateErr := t.persistLocked(host)
 		t.mu.Unlock()
 		if stateErr != nil {
 			resp.Body.Close()
@@ -571,27 +535,29 @@ func (t *hostTransport) recovered(host string) error {
 	s.Failures = 0
 	s.Until = time.Time{}
 	s.ResumeURL = ""
-	return t.persistLocked()
+	return t.persistLocked(host)
 }
 func (t *hostTransport) rememberRetry(address string) error {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	s := t.stateLocked(addressHost(address))
+	host := addressHost(address)
+	s := t.stateLocked(host)
 	if s.ResumeURL != "" {
 		return nil
 	}
 	s.ResumeURL = address
-	return t.persistLocked()
+	return t.persistLocked(host)
 }
 func (t *hostTransport) completed(address string) error {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	s := t.stateLocked(addressHost(address))
+	host := addressHost(address)
+	s := t.stateLocked(host)
 	if s.ResumeURL != address {
 		return nil
 	}
 	s.ResumeURL = ""
-	return t.persistLocked()
+	return t.persistLocked(host)
 }
 
 type feedRef struct {

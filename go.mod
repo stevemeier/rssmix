@@ -49,5 +49,5 @@ require (
 require (
 	github.com/kr/pretty v0.3.1 // indirect
 	github.com/valyala/fasthttp v1.34.0
-	golang.org/x/net v0.61.0 // indirect
+	golang.org/x/net v0.61.0
 )

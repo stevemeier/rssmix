@@ -9,6 +9,7 @@ import (
 )
 
 func TestExplicitUserAgent(t *testing.T) {
+	state := testStateStore(t)
 	calls := 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		calls++
@@ -26,15 +27,15 @@ func TestExplicitUserAgent(t *testing.T) {
 			return
 		}
 		w.Header().Set("ETag", `"test"`)
-		fmt.Fprint(w, "test feed")
+		fmt.Fprint(w, testRSSBody("test feed"))
 	}))
 	defer server.Close()
 	path := filepath.Join(t.TempDir(), "feed")
-	first, err := fetchFeed(server.Client(), server.URL, path)
+	first, err := fetchFeed(state, server.Client(), server.URL, path)
 	if err != nil || !first.changed {
 		t.Fatalf("initial: %+v %v", first, err)
 	}
-	second, err := fetchFeed(server.Client(), server.URL, path)
+	second, err := fetchFeed(state, server.Client(), server.URL, path)
 	if err != nil || second.changed {
 		t.Fatalf("conditional: %+v %v", second, err)
 	}

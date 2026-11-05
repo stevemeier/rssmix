@@ -49,8 +49,8 @@ func send(t *testing.T, tr *hostTransport, address string) error {
 func TestExponentialBackoffAndRestart(t *testing.T) {
 	tr, now, status, retry, calls := testHost(t)
 	_ = retry
-	path := filepath.Join(t.TempDir(), "state.json")
-	if err := tr.loadState(path); err != nil {
+	state := testStateStore(t)
+	if err := tr.loadState(state); err != nil {
 		t.Fatal(err)
 	}
 	address := "https://example.org/b"
@@ -72,7 +72,7 @@ func TestExponentialBackoffAndRestart(t *testing.T) {
 		restored := newHostTransport(tr.base)
 		restored.now = tr.now
 		restored.wait = tr.wait
-		if err := restored.loadState(path); err != nil {
+		if err := restored.loadState(state); err != nil {
 			t.Fatal(err)
 		}
 		if restored.states["example.org"].Failures != i+1 {
@@ -141,10 +141,10 @@ func TestResumeRotation(t *testing.T) {
 	}
 }
 func TestInvalidStateStopsStartup(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "state.json")
+	path := filepath.Join(t.TempDir(), "rssmix-fetcher-state.json")
 	ioutil.WriteFile(path, []byte("broken"), 0600)
-	tr, _, _, _, _ := testHost(t)
-	if tr.loadState(path) == nil {
+	state := testStateStore(t)
+	if state.importLegacy(filepath.Dir(path), 0) == nil {
 		t.Fatal("invalid state accepted")
 	}
 }
@@ -172,7 +172,7 @@ func TestSQLitePassRecoveryAndResume(t *testing.T) {
 			w.WriteHeader(429)
 			return
 		}
-		fmt.Fprint(w, "feed-"+r.URL.Path)
+		fmt.Fprint(w, testRSSBody("feed-"+r.URL.Path))
 	}))
 	defer server.Close()
 	for i, path := range []string{"/a", "/b"} {
@@ -189,8 +189,8 @@ func TestSQLitePassRecoveryAndResume(t *testing.T) {
 	tr, now, _, _, _ := testHost(t)
 	tr.base = http.DefaultTransport
 	feedTransport = tr
-	statePath := filepath.Join(dir, "state.json")
-	if err := tr.loadState(statePath); err != nil {
+	state := mustStateStore(t, db.DB)
+	if err := tr.loadState(state); err != nil {
 		t.Fatal(err)
 	}
 	refresh_feeds(dir)
@@ -219,7 +219,7 @@ func TestSQLitePassRecoveryAndResume(t *testing.T) {
 		t.Fatal("full successful pass did not reset")
 	}
 	restored := newHostTransport(http.DefaultTransport)
-	if err := restored.loadState(statePath); err != nil {
+	if err := restored.loadState(state); err != nil {
 		t.Fatal(err)
 	}
 	if restored.states[host].Failures != 0 {

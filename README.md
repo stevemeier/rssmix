@@ -104,6 +104,56 @@ interval between the fetcher's atomic file replacement and its database commit.
 If that database commit fails, the next successful check records the new content
 version even when the cache already contains identical bytes.
 
-Build the compiler as a package (`go build ./compiler`) or use `make`; it now has
-multiple source files. This change does not migrate backoff or HTTP-validator
-JSON files into SQLite and does not validate downloads inside the fetcher yet.
+Build the compiler and fetcher as packages (`go build ./compiler` and
+`go build ./fetcher`) or use `make`; both have multiple source files.
+Backoff and HTTP validators are stored in SQLite (see below).
+
+### Download validation
+
+Before replacing a cached feed, the fetcher validates the complete response.
+XML must be well formed, have a supported RSS/RDF/Atom root and, for RSS/RDF,
+exactly one direct channel. Trailing garbage, additional roots, duplicate
+attributes and nesting deeper than 256 elements are rejected. This checks
+structure and parser compatibility, not full RSS/Atom specification compliance.
+Valid empty feeds and JSON Feed remain supported. HTTP Content-Type alone is
+not used to accept or reject a feed.
+
+Rejected downloads leave the previous cache, HTTP validators and database
+revision intact. Temporary downloads are removed. Existing caches are validated
+before conditional requests are enabled; successful validation is recorded in
+SQLite. The compiler's feed parser must also accept the data.
+External XML entities are not resolved. No additional database migration is
+needed for download validation.
+
+### Fetcher state in SQLite
+
+The fetcher creates `fetcher_host_state`, `fetcher_http_state` and
+`fetcher_state_migration` automatically at startup. No manual ALTER TABLE is
+required. Host records contain the next request time, cooldown, failure count
+and resume URL. HTTP validators are keyed by the original feed URL and remain
+bound to the SHA-256 of the accepted cache. Missing or changed caches cannot
+use stale validators. Timestamps are UTC RFC3339 with fractional seconds;
+an empty string means no scheduled time.
+
+On the first start for each database, the fetcher imports
+`workdir/rssmix-fetcher-state.json` and the `.http.json` files next to the
+configured feed caches, respecting `subdirs`. All configured feeds are
+considered, including inactive ones. Existing SQLite records take precedence.
+The import and its completion marker commit in one transaction. A failed import
+can be retried safely. Invalid backoff JSON stops startup to avoid losing a
+cooldown; malformed or mismatched HTTP metadata is skipped with a warning,
+causing a full GET instead.
+
+After the import commits, JSON files are neither read nor written. They remain
+unchanged and may be archived or removed after checking the migration log.
+Keep the configured workdir unchanged during this first start so existing
+metadata can be found. Missing JSON files are allowed; the completed import
+will not be repeated if files appear later. Sources added later use fresh HTTP
+state. A downgrade to an old fetcher would use the stale JSON files, so it does
+not restore the current SQLite scheduling state automatically.
+
+Only one fetcher process should use a database. Stop the old fetcher before
+replacing its binary; the compiler can continue running. Backoff delays,
+per-host pacing, `active=0` behavior and download validation are unchanged.
+Back up SQLite using its backup facility; cached feed bodies and generated
+compilations remain separate files and still need their own backups.

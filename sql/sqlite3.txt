@@ -5,3 +5,6 @@ CREATE TABLE feed (id integer primary key, uschema string, urn string, created i
 CREATE TABLE feed_status (id integer unique, refreshed int, updated int, active int);
 CREATE TABLE IF NOT EXISTS feed_revision (feed_id INTEGER PRIMARY KEY, revision INTEGER NOT NULL, content_hash TEXT NOT NULL DEFAULT '');
 CREATE TABLE IF NOT EXISTS compilation_build_state (id TEXT PRIMARY KEY, snapshot_hash TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS fetcher_host_state (host TEXT PRIMARY KEY NOT NULL, next_request TEXT NOT NULL DEFAULT '', paused_until TEXT NOT NULL DEFAULT '', failures INTEGER NOT NULL DEFAULT 0 CHECK(failures BETWEEN 0 AND 1000000), resume_url TEXT NOT NULL DEFAULT '');
+CREATE TABLE IF NOT EXISTS fetcher_http_state (url TEXT PRIMARY KEY NOT NULL, etag TEXT NOT NULL DEFAULT '', last_modified TEXT NOT NULL DEFAULT '', content_hash TEXT NOT NULL DEFAULT '', validation_version INTEGER NOT NULL DEFAULT 0);
+CREATE TABLE IF NOT EXISTS fetcher_state_migration (name TEXT PRIMARY KEY NOT NULL, completed_at TEXT NOT NULL);
