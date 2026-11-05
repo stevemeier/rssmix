@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"github.com/stevemeier/rssmix/lib"
 	"io"
 	"io/ioutil"
 	"net/http"
@@ -223,6 +224,9 @@ func TestRefreshSQLiteStatus(t *testing.T) {
 		t.Fatal(err)
 	}
 	db.Exec("INSERT INTO feed_status VALUES (1,0,0,1)")
+	if err := lib.EnsureCompilationState(db.DB); err != nil {
+		t.Fatal(err)
+	}
 	k = koanf.New(".")
 	k.Set("subdirs", 0)
 	feedTransport = newHostTransport(http.DefaultTransport)

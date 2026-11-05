@@ -15,7 +15,7 @@ rssmix-api: FORCE
 	go build -o rssmix-api $(GOFLAGS) api/main.go
 
 rssmix-compiler: FORCE
-	go build -o rssmix-compiler $(GOFLAGS) compiler/main.go
+	go build -o rssmix-compiler $(GOFLAGS) ./compiler
 
 rssmix-fetcher: FORCE
 	go build -o rssmix-fetcher $(GOFLAGS) fetcher/main.go

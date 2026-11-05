@@ -3,3 +3,5 @@ CREATE TABLE compilation_content (id string not null, feed_id integer);
 CREATE TABLE compilation_status (id string, updated int, published int);
 CREATE TABLE feed (id integer primary key, uschema string, urn string, created int, filename string);
 CREATE TABLE feed_status (id integer unique, refreshed int, updated int, active int);
+CREATE TABLE IF NOT EXISTS feed_revision (feed_id INTEGER PRIMARY KEY, revision INTEGER NOT NULL, content_hash TEXT NOT NULL DEFAULT '');
+CREATE TABLE IF NOT EXISTS compilation_build_state (id TEXT PRIMARY KEY, snapshot_hash TEXT NOT NULL);

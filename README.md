@@ -79,3 +79,31 @@ CGO_ENABLED=0 go test ./...
 
 Each component uses a YAML file for its configuration. Examples can be found in the `etc/` folder,
 containing all available settings.
+
+## Compiler consistency
+
+Fetcher and compiler now track content revisions in SQLite, independent of
+wall-clock timestamps. They automatically add `feed_revision` and
+`compilation_build_state` at startup without altering the existing tables.
+Deploy and restart both workers together. The first run rebuilds configured
+compilations; the existing output is kept until the build succeeds.
+
+A compilation is replaced only if every assigned source can be read and parsed.
+`feed_status.active = 0` only pauses fetching: the compiler continues using that
+source's last downloaded file. A source is excluded only when its association
+in `compilation_content` is removed. A paused source with missing or invalid cache
+still prevents replacing the output. If no sources are assigned, the previous
+output is retained and an error is logged. A valid feed containing zero items
+is still accepted as an empty feed.
+
+Source revisions and the configuration used for a successful build form a
+snapshot. Source changes during compilation stay queued, even if two versions
+arrive within the same second. The compiler also detects changes to source
+membership, filters, title, destination and item limit. Source hashes guard the
+interval between the fetcher's atomic file replacement and its database commit.
+If that database commit fails, the next successful check records the new content
+version even when the cache already contains identical bytes.
+
+Build the compiler as a package (`go build ./compiler`) or use `make`; it now has
+multiple source files. This change does not migrate backoff or HTTP-validator
+JSON files into SQLite and does not validate downloads inside the fetcher yet.

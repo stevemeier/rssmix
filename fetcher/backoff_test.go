@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"github.com/jmoiron/sqlx"
 	"github.com/knadh/koanf"
+	"github.com/stevemeier/rssmix/lib"
 	"io/ioutil"
 	"net/http"
 	"net/http/httptest"
@@ -179,6 +180,9 @@ func TestSQLitePassRecoveryAndResume(t *testing.T) {
 			t.Fatal(err)
 		}
 		db.Exec("INSERT INTO feed_status VALUES (?,0,0,1)", i+1)
+	}
+	if err := lib.EnsureCompilationState(db.DB); err != nil {
+		t.Fatal(err)
 	}
 	k = koanf.New(".")
 	k.Set("subdirs", 0)

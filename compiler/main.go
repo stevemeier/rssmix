@@ -1,6 +1,9 @@
 package main
 
 import "log"
+import "bytes"
+import "crypto/sha256"
+import "fmt"
 import "io/ioutil"
 import "path/filepath"
 import "os"
@@ -28,16 +31,21 @@ var k = koanf.New(".")
 func main() {
 	log.Printf("Version: %s\n", version)
 
-        // Parse configuration
-        k = lib.LoadConfig("compiler")
-        log.Printf("Loaded config from %s\n", k.String("configfile"))
+	// Parse configuration
+	k = lib.LoadConfig("compiler")
+	log.Printf("Loaded config from %s\n", k.String("configfile"))
 
 	// Database connection
 	log.Printf("Opening database (type: %s)\n", k.String("database.type"))
 	var dberr error
-        database, dberr = sqlx.Connect(k.String("database.type"), k.String("database.url"))
-	if dberr != nil { log.Fatal(dberr) }
+	database, dberr = sqlx.Connect(k.String("database.type"), k.String("database.url"))
+	if dberr != nil {
+		log.Fatal(dberr)
+	}
 	defer database.Close()
+	if err := lib.EnsureCompilationState(database.DB); err != nil {
+		log.Fatal(err)
+	}
 
 	for {
 		queue := compilations_needing_update()
@@ -47,12 +55,8 @@ func main() {
 		}
 
 		for _, cplid := range queue {
-			updsuccess, _ := update_compilation(cplid)
-			if updsuccess {
-				updok, upderr := mark_compilation_updated(cplid)
-				if !updok {
-					log.Printf("[%s] Database error: %s\n", cplid, upderr)
-				}
+			if _, err := update_compilation(cplid); err != nil {
+				logSnapshotError(cplid, err)
 			}
 		}
 
@@ -60,76 +64,66 @@ func main() {
 	}
 }
 
-func update_compilation (cplid string) (bool, error) {
+func update_compilation(cplid string) (bool, error) {
 	log.Printf("[%s] Updating compilation\n", cplid)
 
-	fp := gofeed.NewParser()
-
-	// Get feed parameters from DB
-	var title string
-	var outfile string
-	var publicurl string
-	var db_filter_inc string
-	var db_filter_exc string
-	var filter_inc []*regexp.Regexp
-	var filter_exc []*regexp.Regexp
-	qrerr := database.QueryRow("SELECT name, COALESCE(filename,''), COALESCE(url,''), COALESCE(filter_inc,''), COALESCE(filter_exc,'') FROM compilation WHERE id = ?", cplid).Scan(&title, &outfile, &publicurl, &db_filter_inc, &db_filter_exc)
-	if qrerr != nil {
-		log.Println(qrerr)
-		return false, qrerr
+	snapshot, err := readCompilationSnapshot(cplid)
+	if err != nil {
+		return false, err
 	}
+	if err := writeCompilation(snapshot); err != nil {
+		return false, err
+	}
+	if err := markSnapshotCompiled(snapshot); err != nil {
+		return false, err
+	}
+	return true, nil
+}
 
+func logSnapshotError(id string, err error) { log.Printf("[%s] Compilation error: %s", id, err) }
+
+func writeCompilation(snapshot compilationSnapshot) error {
+	cplid, outfile := snapshot.ID, snapshot.Filename
 	if outfile == "" {
-		log.Printf("[%s] No output filename set. Skipping!\n", cplid)
-		return false, nil
+		return fmt.Errorf("no output filename configured")
 	}
-
-	// We turn the string from the database into an array of regexp
-	if len(db_filter_inc) > 0 { filter_inc = string_to_regexp(db_filter_inc, ",") }
-	if len(db_filter_exc) > 0 { filter_exc = string_to_regexp(db_filter_exc, ",") }
-
-	// Create feed object
-	output := &feeds.Feed{}
-	output.Title = title
-	output.Created = time.Now()
-	output.Link = &feeds.Link{Href: publicurl} // this is required
-
-	var files []string
-	rows, ferr := database.Query(`SELECT feed.filename FROM feed
-				      INNER JOIN compilation_content ON compilation_content.feed_id = feed.id
-				      WHERE compilation_content.id = ?`, cplid)
-	if ferr != nil {
-		log.Println(ferr)
-		return false, ferr
+	if len(snapshot.Sources) == 0 {
+		return fmt.Errorf("no assigned sources; keeping previous output")
 	}
-
-	defer rows.Close()
-	for rows.Next() {
-		var nextfile string
-		scanerr := rows.Scan(&nextfile)
-		if scanerr != nil {
-			log.Println(scanerr)
-			return false, scanerr
+	fp := gofeed.NewParser()
+	var filter_inc, filter_exc []*regexp.Regexp
+	if snapshot.Include != "" {
+		filter_inc = string_to_regexp(snapshot.Include, ",")
+	}
+	if snapshot.Exclude != "" {
+		filter_exc = string_to_regexp(snapshot.Exclude, ",")
+	}
+	output := &feeds.Feed{Title: snapshot.Name, Created: time.Now(), Link: &feeds.Link{Href: snapshot.URL}}
+	for _, source := range snapshot.Sources {
+		if !source.StatusKnown {
+			return fmt.Errorf("feed %d has no status row; keeping previous output", source.ID)
+		}
+		if source.Filename == "" {
+			return fmt.Errorf("feed %d has no downloaded file; keeping previous output", source.ID)
+		}
+		log.Printf("[%s] Parsing %s", cplid, source.Filename)
+		data, err := os.ReadFile(source.Filename)
+		if err != nil {
+			return fmt.Errorf("feed %d: %w", source.ID, err)
+		}
+		if source.ContentHash != "" && fmt.Sprintf("%x", sha256.Sum256(data)) != source.ContentHash {
+			return fmt.Errorf("feed %d changed while compiling; retrying on next pass", source.ID)
+		}
+		input, parseerr := fp.Parse(bytes.NewReader(data))
+		if parseerr != nil {
+			return fmt.Errorf("feed %d: %w", source.ID, parseerr)
 		}
 
-		if nextfile != "" {
-			files = append(files, nextfile)
-		}
-	}
-
-	for _, file := range files {
-		log.Printf("[%s] Parsing %s\n", cplid, file)
-		reader, openerr := os.Open(file)
-		if openerr != nil { log.Println(openerr); continue }
-		input, parseerr := fp.Parse(reader)
-		reader.Close()
-		if parseerr != nil { log.Println(parseerr); continue }
-
-	        for _, item := range input.Items {
+		for _, item := range input.Items {
 			nextitem := transform_item(item)
 			// Apply filter
 			if (len(filter_inc) == 0 || match_any(nextitem.Title, filter_inc)) &&
-			   (len(filter_exc) == 0 || !match_any(nextitem.Title, filter_exc)) {
+				(len(filter_exc) == 0 || !match_any(nextitem.Title, filter_exc)) {
 				// Neither include nor exlcude is set
 				// Include is set and matches
 				// Exclude is set and does not match
@@ -144,8 +138,8 @@ func update_compilation (cplid string) (bool, error) {
 	sort.Slice(output.Items, func(i, j int) bool { return (output.Items[i].Created).After((output.Items[j].Created)) })
 
 	// Limit to most recent
-	if k.Int("items.max") > 0 && len(output.Items) > k.Int("items.max") {
-		output.Items = output.Items[:k.Int("items.max")]
+	if snapshot.ItemsMax > 0 && len(output.Items) > snapshot.ItemsMax {
+		output.Items = output.Items[:snapshot.ItemsMax]
 	}
 
 	// Output
@@ -153,49 +147,62 @@ func update_compilation (cplid string) (bool, error) {
 	ofh, oferr := ioutil.TempFile(filepath.Dir(outfile), ".rssmix-compilation-*")
 	if oferr != nil {
 		log.Println(oferr)
-		return false, oferr
+		return oferr
 	}
 	defer os.Remove(ofh.Name())
 	werr := output.WriteRss(ofh)
-	if werr != nil { ofh.Close(); return false, werr }
-	if err := ofh.Chmod(0644); err != nil { ofh.Close(); return false, err }
-	if err := ofh.Close(); err != nil { return false, err }
-	if err := os.Rename(ofh.Name(), outfile); err != nil { return false, err }
-	return true, nil
+	if werr != nil {
+		ofh.Close()
+		return werr
+	}
+	if err := ofh.Chmod(0644); err != nil {
+		ofh.Close()
+		return err
+	}
+	if err := ofh.Close(); err != nil {
+		return err
+	}
+	if err := os.Rename(ofh.Name(), outfile); err != nil {
+		return err
+	}
+	return nil
 }
 
-func transform_item (in *gofeed.Item) (feeds.Item) {
+func transform_item(in *gofeed.Item) feeds.Item {
 	// In the initial object, we only set "safe" strings
 	out := feeds.Item{Title: in.Title,
-                          Description: in.Description,
-		          Id: in.GUID,
-		          Content: in.Content}
+		Description: in.Description,
+		Id:          in.GUID,
+		Content:     in.Content}
 
 	// Updated field is not always set
 	updated := in.UpdatedParsed
-	if updated != nil { out.Updated = *updated }
+	if updated != nil {
+		out.Updated = *updated
+	}
 
 	// PubDate is also not always set
 	pubdate := in.PublishedParsed
-	if pubdate != nil { out.Created = *pubdate }
+	if pubdate != nil {
+		out.Created = *pubdate
+	}
 
 	// Author
 	if len(in.Authors) >= 1 {
 		author := &feeds.Author{Name: in.Authors[0].Name,
-				        Email: in.Authors[0].Email}
+			Email: in.Authors[0].Email}
 		out.Author = author
 	}
 
 	// Link
-	if len(in.Link) > 0 {
-		out.Link = &feeds.Link{Href: in.Link}
-	}
+	// gorilla/feeds dereferences Link even when RSS has no item link.
+	out.Link = &feeds.Link{Href: in.Link}
 
 	// Podcasts have enclosures, but not all feeds
 	if len(in.Enclosures) >= 1 {
 		encl := &feeds.Enclosure{Url: in.Enclosures[0].URL,
-				       Length: in.Enclosures[0].Length,
-				       Type: in.Enclosures[0].Type }
+			Length: in.Enclosures[0].Length,
+			Type:   in.Enclosures[0].Type}
 
 		out.Enclosure = encl
 	}
@@ -203,53 +210,28 @@ func transform_item (in *gofeed.Item) (feeds.Item) {
 	return out
 }
 
-func compilations_needing_update () ([]string) {
-	var result []string
-
-	rows, qerr := database.Query(`SELECT DISTINCT(compilation.id) FROM compilation 
-				      LEFT JOIN compilation_content ON compilation.id = compilation_content.id 
-				      LEFT JOIN compilation_status ON compilation_status.id = compilation.id 
-				      LEFT JOIN feed_status ON feed_status.id = compilation_content.feed_id
-				      WHERE feed_status.updated > compilation_status.updated`)
-
-	if qerr != nil {
-		log.Println(qerr)
-		return result
-	}
-
-	defer rows.Close()
-	for rows.Next() {
-		var cplid string
-		scanerr := rows.Scan(&cplid)
-		if scanerr != nil { log.Println(scanerr) }
-
-		result = append(result, cplid)
-	}
-
-	return result
-}
-
-func mark_compilation_updated (cplid string) (bool, error) {
-	_, dberr := database.Exec("UPDATE compilation_status SET updated = ? WHERE id = ?", time.Now().Unix(), cplid)
-	return dberr == nil, dberr
-}
-
-func string_to_regexp (s string, sep string) ([]*regexp.Regexp) {
+func string_to_regexp(s string, sep string) []*regexp.Regexp {
 	var result []*regexp.Regexp
 
 	for _, i := range strings.Split(s, sep) {
 		re, err := regexp.Compile(i)
-		if err == nil { result = append(result, re) }
+		if err == nil {
+			result = append(result, re)
+		}
 	}
 
 	return result
-}	
+}
 
-func match_any (s string, re []*regexp.Regexp) (bool) {
-	if len(re) == 0 { return false }
+func match_any(s string, re []*regexp.Regexp) bool {
+	if len(re) == 0 {
+		return false
+	}
 
 	for _, regexp := range re {
-		if regexp.MatchString(s) { return true }
+		if regexp.MatchString(s) {
+			return true
+		}
 	}
 
 	return false

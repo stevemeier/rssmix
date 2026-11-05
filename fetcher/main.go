@@ -83,6 +83,9 @@ func main() {
 		log.Fatal(dberr)
 	}
 	defer database.Close()
+	if err := lib.EnsureCompilationState(database.DB); err != nil {
+		log.Fatal(err)
+	}
 
 	for {
 		// We enter an endless loop here
@@ -189,27 +192,23 @@ func refresh_feeds(storedir string) {
 			}
 			continue
 		}
+		changed, persistErr := lib.RecordFeedRefresh(database.DB, feedid, fstatus.File, result.hash, time.Now().Unix())
+		if persistErr != nil {
+			passOK[host] = false
+			log.Printf("[%d] Cannot record downloaded feed: %s", feedid, persistErr)
+			continue
+		}
 		if stateErr := feedTransport.completed(fstatus.URL); stateErr != nil {
 			log.Fatal(stateErr)
 		}
-		_, execerr = database.Exec("UPDATE feed_status SET refreshed = ? WHERE id = ?", time.Now().Unix(), feedid)
-		if execerr != nil {
-			log.Println(execerr)
-		}
 		if result.changed {
-			_, execerr = database.Exec("UPDATE feed_status SET updated = ? WHERE id = ?", time.Now().Unix(), feedid)
-			if execerr != nil {
-				log.Println(execerr)
-			}
 			log.Printf("[%d] Download successful (%d bytes)", feedid, result.bytes)
+		} else if changed {
+			log.Printf("[%d] Up-to-date (%s); cached content registered for compilation", feedid, result.status)
 		} else {
 			log.Printf("[%d] Up-to-date (%s)", feedid, result.status)
 		}
-		// Repair missing/stale database paths even if the bytes did not change.
-		_, execerr = database.Exec("UPDATE feed SET filename = ? WHERE id = ?", fstatus.File, feedid)
-		if execerr != nil {
-			log.Println(execerr)
-		}
+
 	}
 	for host, ok := range passOK {
 		if ok {
@@ -235,6 +234,7 @@ type feedValidators struct {
 }
 
 type fetchResult struct {
+	hash    string
 	changed bool
 	bytes   int64
 	status  string
@@ -258,6 +258,7 @@ func fileHash(path string) (string, error) {
 func fetchFeed(client *http.Client, address, path string) (fetchResult, error) {
 	var result fetchResult
 	oldHash, _ := fileHash(path)
+	result.hash = oldHash
 	var validators feedValidators
 	if b, err := ioutil.ReadFile(path + ".http.json"); err == nil {
 		if err := json.Unmarshal(b, &validators); err != nil {
@@ -320,6 +321,7 @@ func fetchFeed(client *http.Client, address, path string) (fetchResult, error) {
 		return result, err
 	}
 	newHash := fmt.Sprintf("%x", h.Sum(nil))
+	result.hash = newHash
 	result.changed = oldHash != newHash
 	result.bytes = n
 	if result.changed {

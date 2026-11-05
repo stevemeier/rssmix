@@ -1,0 +1,13 @@
+
+# Build-Ausgaben
+/rssmix-api
+/rssmix-compiler
+/rssmix-fetcher
+/rssmix-publisher
+/api/api
+/compiler/compiler
+/fetcher/fetcher
+/publisher/publisher
+
+# Lokale Sicherungskopien
+*.before-*
