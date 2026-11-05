@@ -47,6 +47,8 @@ type FeedStatus struct {
 }
 
 func main() {
+	if lib.HandleCLI("fetcher", version) { return }
+
 	log.Printf("Version: %s\n", version)
 
 	// Parse configuration

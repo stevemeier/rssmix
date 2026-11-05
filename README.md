@@ -196,3 +196,11 @@ Deploy the updated compiler before enabling the updated API to write new lists.
 An old compiler cannot read the tagged format. The fetcher is unchanged. For an
 installation that runs only fetcher/compiler, only the compiler binary needs to
 be replaced for this patch. Rebuild consumers of the local `lib` module normally.
+
+### Command-line help
+
+All four binaries accept `-h` and `--help`. They print usage, the build version
+and configuration search paths to stdout, then exit successfully before loading
+configuration or opening a database. Unknown options or positional arguments
+print an error to stderr and exit with code 2. Running without arguments starts
+the service as before. No configuration-path option is introduced.

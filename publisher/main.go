@@ -25,6 +25,8 @@ type PublishItem struct {
 }
 
 func main() {
+	if lib.HandleCLI("publisher", version) { return }
+
 	log.Printf("Version: %s\n", version)
 
 	// Parse configuration

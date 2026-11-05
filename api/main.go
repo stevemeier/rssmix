@@ -87,6 +87,8 @@ var database *sqlx.DB
 var k = koanf.New(".")
 
 func main () {
+	if lib.HandleCLI("api", version) { return }
+
 	log.Printf("Version: %s\n", version)
 
 	// Parse configuration
