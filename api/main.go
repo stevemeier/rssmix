@@ -23,7 +23,8 @@ package main
 import "bytes"
 import "encoding/json"
 import "log"
-import "math/rand"
+import "crypto/rand"
+import "math/big"
 import "net/http"
 import "net/url"
 import "strings"
@@ -339,7 +340,12 @@ func http_handler_new_compilation (ctx *fasthttp.RequestCtx) {
 	include, exclude, validFilters := encode_compilation_filters(ctx, newcpl.Filter.Include, newcpl.Filter.Exclude)
 	if !validFilters { return }
 
-	cplid := generate_id(k.Int("id.length"))
+	cplid, iderr := generate_id(k.Int("id.length"))
+	if iderr != nil {
+		log.Printf("Cannot generate compilation ID: %s", iderr)
+		ctx.SetStatusCode(fasthttp.StatusInternalServerError)
+		return
+	}
 
 	// get the IDs for the feeds
 	url2feedid := make(map[string]int64)
@@ -537,21 +543,24 @@ func url_in_catalogue (s string) (bool, int64) {
 	return false, -1
 }
 
-func generate_id (length int) (string) {
+func generate_id (length int) (string, error) {
 	var result []string
 
 	// This is the supported characeter set
 	// i, l, o, 0, 1 are excluded
 	charset := "abcdefghjkmnpqrstuvwxyz23456789"
 	charslice := strings.Split(charset, "")
+	limit := big.NewInt(int64(len(charslice)))
 
 	for i := 1; i <= length; i++ {
-		// this is not cryptographically secure, but good enough
-		rand.Seed(time.Now().UTC().UnixNano())
-		result = append(result, charslice[rand.Intn(len(charslice))])
+		n, err := rand.Int(rand.Reader, limit)
+		if err != nil {
+			return "", err
+		}
+		result = append(result, charslice[n.Int64()])
 	}
 
-	return strings.Join(result, "")
+	return strings.Join(result, ""), nil
 }
 
 func http_handler_get_memstats (ctx *fasthttp.RequestCtx) {
