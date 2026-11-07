@@ -109,6 +109,9 @@ func main () {
 	routes.ANY("/", http_handler_unknown_path)
 	routes.ANY("/(.*)", http_handler_unknown_path)
 
+	adminHandler, adminErr := newAdminHandler(routes.Handler, k.Get("admin.tokens"))
+	if adminErr != nil { log.Fatal(adminErr) }
+
 	log.Printf("Opening database (type: %s)\n", k.String("database.type"))
 	var dberr error
 	database, dberr = sqlx.Connect(k.String("database.type"), k.String("database.url"))
@@ -124,7 +127,7 @@ func main () {
 	if lsterr != nil { log.Fatal(lsterr) }
 	log.Printf("Listening on %s\n", listener.Addr().String())
 	server := &fasthttp.Server{
-		Handler:            routes.Handler,
+		Handler:            adminHandler,
 		ReadTimeout:        10 * time.Second,
 		WriteTimeout:       15 * time.Second,
 		IdleTimeout:        30 * time.Second,

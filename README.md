@@ -258,3 +258,46 @@ compilations. Neither case falls back to a query parameter. Missing credentials
 on protected compilations return 401 with a Basic WWW-Authenticate challenge.
 Public GET and the password used when creating/changing a compilation are
 unchanged. POST/PATCH still carry a new password in their JSON body.
+
+### Admin tokens
+
+All methods under `/v1/admin/` (including cleanup, memstats and version) require
+an opaque Bearer token from the API configuration. Configure one token per
+person, device or integration. Every configured token currently grants the same
+admin permissions; compilation passwords are separate credentials.
+
+Generate a fresh token for each entry with `openssl rand -hex 32`, then paste
+the results into your private `api.yaml`, replacing the placeholders:
+
+```yaml
+admin:
+  tokens:
+    - "<token for your device>"
+    - "<token for your integration>"
+```
+
+The placeholders are not valid tokens. Accepted tokens use RFC 6750 characters
+(letters/digits and `-._~+/`, optionally followed by `=` padding), with no
+whitespace. A missing, null or empty list disables all admin access. Invalid
+configuration entries stop API startup without printing token values. The
+shipped example uses an empty list and contains no usable secret.
+
+Send a token only in the Authorization header, over HTTPS:
+
+```sh
+curl -H "Authorization: Bearer $RSSMIX_ADMIN_TOKEN" \
+  'https://example.org/v1/admin/version'
+```
+
+Missing, wrong, empty, malformed or duplicate Authorization headers return
+401 with a Bearer challenge before the admin handler executes. Query parameters
+and Basic authentication are not accepted for admin access. Matching compares
+fixed-size SHA-256 digests in constant time. No token values are logged by the
+guard. Public GET and compilation Basic/query-password behavior are unchanged.
+Admin tokens do not override a compilation's password.
+
+Remove a token from the list and restart the API to revoke that access. Adding
+or rotating tokens also requires a restart; there is no config hot reload.
+Keep tokens out of Git and restrict access to the private configuration file.
+Build the API as a package (`go build ./api`) or use `make`, because admin
+authentication is now in a separate source file. No database migration is needed.

@@ -12,7 +12,7 @@ clean:
 	rm -f rssmix-api rssmix-compiler rssmix-fetcher rssmix-publisher
 
 rssmix-api: FORCE
-	go build -o rssmix-api $(BUILD_FLAGS) api/main.go
+	go build -o rssmix-api $(BUILD_FLAGS) ./api
 
 rssmix-compiler: FORCE
 	go build -o rssmix-compiler $(BUILD_FLAGS) ./compiler

@@ -17,3 +17,7 @@ public:
 captcha:
   google:
     secret:
+
+# Admin endpoints are inaccessible until at least one token is configured.
+admin:
+  tokens: []

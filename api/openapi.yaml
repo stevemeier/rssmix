@@ -85,26 +85,42 @@ paths:
   /admin/cleanup_feed:
     post:
       summary: Remove URLs from feed which are not used by any compilation
+      security:
+        - adminBearer: []
       responses:
+        '401':
+          description: A valid configured admin Bearer token is required.
         '200':
           description: OK
 
   /admin/memstats:
     get:
       summary: Retrieve memory statistics of the API server
+      security:
+        - adminBearer: []
       responses:
+        '401':
+          description: A valid configured admin Bearer token is required.
         '200':
           description: OK
 
   /admin/version:
     get:
       summary: Retrieve the currently running version of the API server
+      security:
+        - adminBearer: []
       responses:
+        '401':
+          description: A valid configured admin Bearer token is required.
         '200':
           description: OK
 
 components:
   securitySchemes:
+    adminBearer:
+      type: http
+      scheme: bearer
+      description: Opaque token from admin.tokens. Use HTTPS.
     compilationBasic:
       type: http
       scheme: basic
