@@ -181,7 +181,8 @@ func http_handler_update_compilation (ctx *fasthttp.RequestCtx) {
 	}
 
 	cplid := trim_dotrss(ctx.UserValue("id").(string))
-	userpw := string(ctx.QueryArgs().Peek("password"))
+	userpw, validAuth := compilation_request_password(ctx)
+	if !validAuth { reject_compilation_auth(ctx); return }
 
 	if !compilation_exists(cplid) {
 		ctx.SetStatusCode(fasthttp.StatusNotFound)
@@ -198,7 +199,7 @@ func http_handler_update_compilation (ctx *fasthttp.RequestCtx) {
 
 	if len(cplpw) > 0 && userpw == "" {
 		// Compilation has a password but none was provided
-		ctx.SetStatusCode(fasthttp.StatusUnauthorized)
+		reject_compilation_auth(ctx)
 		return
 	}
 
@@ -290,7 +291,8 @@ func http_handler_delete_compilation (ctx *fasthttp.RequestCtx) {
 	var execerr error
 	log_request(ctx)
 	cplid := trim_dotrss(ctx.UserValue("id").(string))
-	userpw := string(ctx.QueryArgs().Peek("password"))
+	userpw, validAuth := compilation_request_password(ctx)
+	if !validAuth { reject_compilation_auth(ctx); return }
 
 	if !compilation_exists(cplid) {
 		ctx.SetStatusCode(fasthttp.StatusNotFound)
@@ -307,7 +309,7 @@ func http_handler_delete_compilation (ctx *fasthttp.RequestCtx) {
 
 	if len(cplpw) > 0 && userpw == "" {
 		// Compilation has a password but none was provided
-		ctx.SetStatusCode(fasthttp.StatusUnauthorized)
+		reject_compilation_auth(ctx)
 		return
 	}
 
@@ -702,4 +704,31 @@ func encode_compilation_filters(ctx *fasthttp.RequestCtx, include, exclude []str
 	response, _ := json.Marshal(map[string]string{"error": "invalid filter: " + err.Error()})
 	ctx.Write(response)
 	return "", "", false
+}
+
+// An explicitly supplied Authorization header always takes precedence. Invalid,
+// empty or duplicate headers never fall back to a query-string credential.
+func compilation_request_password(ctx *fasthttp.RequestCtx) (string, bool) {
+	var authorization string
+	count := 0
+	ctx.Request.Header.VisitAll(func(key, value []byte) {
+		if strings.EqualFold(string(key), "Authorization") {
+			count++
+			authorization = string(value)
+		}
+	})
+	if count == 0 {
+		return string(ctx.QueryArgs().Peek("password")), true
+	}
+	if count != 1 {
+		return "", false
+	}
+	request := &http.Request{Header: http.Header{"Authorization": []string{authorization}}}
+	_, password, ok := request.BasicAuth()
+	return password, ok
+}
+
+func reject_compilation_auth(ctx *fasthttp.RequestCtx) {
+	ctx.Response.Header.Set("WWW-Authenticate", `Basic realm="rssmix", charset="UTF-8"`)
+	ctx.SetStatusCode(fasthttp.StatusUnauthorized)
 }

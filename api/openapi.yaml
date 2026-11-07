@@ -22,12 +22,6 @@ paths:
         schema:
           type: string
 
-      - name: password
-        in: path
-        required: false
-        schema:
-          type: string
-
     get:
       summary: Retrieve the details of a compilation
       responses:
@@ -37,6 +31,16 @@ paths:
           description: A compilation with this ID could not be found
 
     delete:
+      description: >-
+        A protected compilation requires its password. Use HTTP Basic
+        Authorization (username ignored) or the legacy password query parameter.
+        If an Authorization header is present, only that header is used;
+        malformed headers never fall back to the query parameter.
+        Passwordless compilations do not require credentials.
+      security:
+        - compilationBasic: []
+        - compilationPassword: []
+        - {}
       summary: Delete an existing compilation
       responses:
         '200':
@@ -44,7 +48,7 @@ paths:
             The compilation has been deleted successfully
         '401':
           description:
-            The compilation is password-protected, but none was provided
+            Credentials are missing for a protected compilation, or Authorization is malformed
         '403':
           description:
             The compilation is password-protected and the password was incorrect
@@ -53,6 +57,16 @@ paths:
             The compilation with this ID was not found
 
     patch:
+      description: >-
+        A protected compilation requires its password. Use HTTP Basic
+        Authorization (username ignored) or the legacy password query parameter.
+        If an Authorization header is present, only that header is used;
+        malformed headers never fall back to the query parameter.
+        Passwordless compilations do not require credentials.
+      security:
+        - compilationBasic: []
+        - compilationPassword: []
+        - {}
       summary: Update an existing compilation
       responses:
         '200':
@@ -60,7 +74,7 @@ paths:
             The compilation has been updated successfully
         '401':
           description:
-            The compilation is password-protected, but none was provided
+            Credentials are missing for a protected compilation, or Authorization is malformed
         '403':
           description:
             The compilation is password-protected and the password was incorrect
@@ -88,3 +102,15 @@ paths:
       responses:
         '200':
           description: OK
+
+components:
+  securitySchemes:
+    compilationBasic:
+      type: http
+      scheme: basic
+      description: Compilation password; the username is ignored. Use HTTPS.
+    compilationPassword:
+      type: apiKey
+      in: query
+      name: password
+      description: Legacy compilation password; ignored when Authorization is present.

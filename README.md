@@ -235,3 +235,26 @@ without restoring a compatible backup. Fetcher/compiler may keep running; they
 do not use the password fields. Backups made before migration still contain
 plaintext passwords. Clearing a column does not securely erase old SQLite pages,
 logs or backups. This patch protects current logical database records.
+
+### Supplying compilation passwords
+
+PATCH and DELETE accept either HTTP Basic authentication or the existing
+`?password=...` query parameter. For Basic authentication, use the compilation
+password as the password; the username is ignored (an empty username is fine):
+
+```sh
+curl --user ':YOUR_PASSWORD' -X PATCH \
+  -H 'Content-Type: application/json' \
+  --data '{"name":"New name"}' \
+  'https://example.org/v1/compilation/COMPILATION_ID'
+```
+
+Use HTTPS: Basic authentication is base64 encoding, not encryption. Prefer the
+header so the password does not appear in URL access logs. Query authentication
+remains available for existing clients. When any Authorization header is
+present, only that header is considered. Unsupported schemes, empty, malformed
+or duplicate headers return 401; wrong Basic passwords return 403 for protected
+compilations. Neither case falls back to a query parameter. Missing credentials
+on protected compilations return 401 with a Basic WWW-Authenticate challenge.
+Public GET and the password used when creating/changing a compilation are
+unchanged. POST/PATCH still carry a new password in their JSON body.
