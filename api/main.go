@@ -123,7 +123,15 @@ func main () {
 	listener, lsterr := reuseport.Listen(k.String("listen.family"), k.String("listen.address"))
 	if lsterr != nil { log.Fatal(lsterr) }
 	log.Printf("Listening on %s\n", listener.Addr().String())
-	httperr := fasthttp.Serve(listener, routes.Handler)
+	server := &fasthttp.Server{
+		Handler:            routes.Handler,
+		ReadTimeout:        10 * time.Second,
+		WriteTimeout:       15 * time.Second,
+		IdleTimeout:        30 * time.Second,
+		MaxRequestBodySize: 1 << 20, // 1 MiB
+		Concurrency:        100,
+	}
+	httperr := server.Serve(listener)
 	if httperr != nil {
 		log.Fatal(httperr)
 	}
