@@ -204,3 +204,34 @@ and configuration search paths to stdout, then exit successfully before loading
 configuration or opening a database. Unknown options or positional arguments
 print an error to stderr and exit with code 2. Running without arguments starts
 the service as before. No configuration-path option is introduced.
+
+### Password hashing
+
+The API stores passwords as Argon2id hashes using `alexedwards/argon2id` and
+`golang.org/x/crypto`. New hashes use 64 MiB, three iterations, two lanes,
+a random 16-byte salt and a 32-byte key. Hash parameters and salt are included
+in the encoded hash. Argon2 operations are serialized per process to bound
+memory usage. Stored parameters are checked before verification.
+
+At API startup, a SQLite transaction adds `compilation.password_hash` if needed,
+hashes each nonempty legacy `password` and clears that plaintext field. Repeated
+startup does not rehash migrated credentials. Empty/NULL passwords remain
+passwordless. A literal legacy password beginning with `$argon2id$` is still
+hashed as plaintext: the separate column makes the distinction unambiguous.
+Migration errors roll back schema and credential changes. Corrupt hashes or
+conflicting plaintext/hash records cause an error; authentication does not fall
+back to plaintext. Legacy plaintext inserted after migration also fails closed.
+
+GET remains public by ID. PATCH and DELETE require the existing password when
+set (missing: 401, wrong: 403). New/changed passwords are never stored in
+plaintext. As before, an omitted or empty PATCH password leaves the current
+password unchanged. Credentials are not returned by GET. Query-parameter
+password transport is unchanged by this patch.
+
+Before migration, stop any old API processes and create a SQLite backup. Keep
+old API binaries stopped after migration: they read the now-empty legacy column
+and would interpret migrated compilations as passwordless. Do not downgrade
+without restoring a compatible backup. Fetcher/compiler may keep running; they
+do not use the password fields. Backups made before migration still contain
+plaintext passwords. Clearing a column does not securely erase old SQLite pages,
+logs or backups. This patch protects current logical database records.

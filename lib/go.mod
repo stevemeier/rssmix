@@ -3,6 +3,7 @@ module github.com/stevemeier/rssmix/lib
 go 1.26.0
 
 require (
+	github.com/alexedwards/argon2id v1.0.0
 	github.com/knadh/koanf v1.5.0
 	modernc.org/sqlite v1.61.0
 )
@@ -17,6 +18,7 @@ require (
 	github.com/mitchellh/reflectwalk v1.0.2 // indirect
 	github.com/ncruces/go-strftime v1.1.0 // indirect
 	github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec // indirect
+	golang.org/x/crypto v0.58.0 // indirect
 	golang.org/x/sys v0.49.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 	modernc.org/libc v1.79.0 // indirect

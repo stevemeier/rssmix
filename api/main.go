@@ -22,6 +22,7 @@ package main
 
 import "bytes"
 import "encoding/json"
+import "errors"
 import "log"
 import "crypto/rand"
 import "math/big"
@@ -114,6 +115,10 @@ func main () {
 	if dberr != nil { log.Fatal(dberr) }
 	defer database.Close()
 
+	migrated, migrationErr := lib.EnsurePasswordHashes(database.DB)
+	if migrationErr != nil { log.Fatal(migrationErr) }
+	log.Printf("Password hashes ready (%d plaintext passwords migrated)", migrated)
+
 	log.Println("Starting HTTP server")
 	listener, lsterr := reuseport.Listen(k.String("listen.family"), k.String("listen.address"))
 	if lsterr != nil { log.Fatal(lsterr) }
@@ -189,7 +194,13 @@ func http_handler_update_compilation (ctx *fasthttp.RequestCtx) {
 		return
 	}
 
-	if len(cplpw) > 0 && userpw != cplpw {
+	match, verifyErr := lib.VerifyPassword(userpw, cplpw)
+	if verifyErr != nil {
+		log.Printf("[%s] Password verification error: %s", cplid, verifyErr)
+		ctx.SetStatusCode(fasthttp.StatusInternalServerError)
+		return
+	}
+	if !match {
 		// Password was provided but is wrong
 		ctx.SetStatusCode(fasthttp.StatusForbidden)
 		return
@@ -197,6 +208,9 @@ func http_handler_update_compilation (ctx *fasthttp.RequestCtx) {
 
 	include, exclude, validFilters := encode_compilation_filters(ctx, changes.Filter.Include, changes.Filter.Exclude)
 	if !validFilters { return }
+
+	newPasswordHash, hashErr := lib.HashPassword(changes.Password)
+	if hashErr != nil { log.Printf("Cannot hash password: %s", hashErr); ctx.SetStatusCode(fasthttp.StatusInternalServerError); return }
 
 	// Now we can modify the compilation
 	// Three things can be modified:
@@ -238,7 +252,7 @@ func http_handler_update_compilation (ctx *fasthttp.RequestCtx) {
 	}
 	if changes.Password != "" {
 		// works
-		_, execerr := tx.Exec("UPDATE compilation SET password = ? WHERE id = ?", changes.Password, cplid)
+		_, execerr := tx.Exec("UPDATE compilation SET password = '', password_hash = ? WHERE id = ?", newPasswordHash, cplid)
 		if execerr != nil { log.Printf("[%s] Database error: %s\n", cplid, execerr); ctx.SetStatusCode(fasthttp.StatusInternalServerError); return }
 	}
 	if changes.Name != "" {
@@ -289,7 +303,13 @@ func http_handler_delete_compilation (ctx *fasthttp.RequestCtx) {
 		return
 	}
 
-	if len(cplpw) > 0 && userpw != cplpw {
+	match, verifyErr := lib.VerifyPassword(userpw, cplpw)
+	if verifyErr != nil {
+		log.Printf("[%s] Password verification error: %s", cplid, verifyErr)
+		ctx.SetStatusCode(fasthttp.StatusInternalServerError)
+		return
+	}
+	if !match {
 		// Password was provided but is wrong
 		ctx.SetStatusCode(fasthttp.StatusForbidden)
 		return
@@ -340,6 +360,9 @@ func http_handler_new_compilation (ctx *fasthttp.RequestCtx) {
 	include, exclude, validFilters := encode_compilation_filters(ctx, newcpl.Filter.Include, newcpl.Filter.Exclude)
 	if !validFilters { return }
 
+	passwordHash, hashErr := lib.HashPassword(newcpl.Password)
+	if hashErr != nil { log.Printf("Cannot hash password: %s", hashErr); ctx.SetStatusCode(fasthttp.StatusInternalServerError); return }
+
 	cplid, iderr := generate_id(k.Int("id.length"))
 	if iderr != nil {
 		log.Printf("Cannot generate compilation ID: %s", iderr)
@@ -377,7 +400,7 @@ func http_handler_new_compilation (ctx *fasthttp.RequestCtx) {
 	}
 	defer tx.Rollback()
 
-	_, execerr = tx.Exec("INSERT INTO compilation (id, password, name, filter_inc, filter_exc) VALUES (?, ?, ?, ?, ?)", cplid, newcpl.Password, lib.Maxlen(newcpl.Name, 127),
+	_, execerr = tx.Exec("INSERT INTO compilation (id, password, password_hash, name, filter_inc, filter_exc) VALUES (?, '', ?, ?, ?, ?)", cplid, passwordHash, lib.Maxlen(newcpl.Name, 127),
                                                                                                                             include, exclude)
 	if execerr != nil { log.Printf("[%s] Database error: %s\n", cplid, execerr); ctx.SetStatusCode(fasthttp.StatusInternalServerError); return }
 	for _, value := range url2feedid {
@@ -477,8 +500,9 @@ func compilation_exists (s string) (bool) {
 }
 
 func compilation_password (s string) (string, error) {
-	var password string
-	scanerr := database.QueryRow("SELECT password FROM compilation WHERE id = ?", s).Scan(&password)
+	var password, legacy string
+	scanerr := database.QueryRow("SELECT COALESCE(password_hash,''), COALESCE(password,'') FROM compilation WHERE id = ?", s).Scan(&password, &legacy)
+	if scanerr == nil && legacy != "" { return "", errors.New("plaintext password present; password migration required") }
 	return password, scanerr
 }
 
