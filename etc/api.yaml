@@ -21,3 +21,6 @@ captcha:
 # Admin endpoints are inaccessible until at least one token is configured.
 admin:
   tokens: []
+
+security:
+  allow_url_credentials: false

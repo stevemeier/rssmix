@@ -221,6 +221,29 @@ func http_handler_update_compilation (ctx *fasthttp.RequestCtx) {
 	include, exclude, validFilters := encode_compilation_filters(ctx, changes.Filter.Include, changes.Filter.Exclude)
 	if !validFilters { return }
 
+	var validURLs bool
+	changes.Add, validURLs = prepareFeedURLs(ctx, changes.Add, k.Bool("security.allow_url_credentials"))
+	if !validURLs { return }
+	changes.Delete, validURLs = prepareFeedURLs(ctx, changes.Delete, true)
+	if !validURLs { return }
+	// Catalogue writes happen before the compilation transaction to avoid
+	// deadlocking SQLite when more than one new source is added.
+	var addedIDs []int64
+	for _, address := range changes.Add {
+		exists, id := url_in_catalogue(address)
+		if !exists {
+			var err error
+			_, id, err = add_feed_to_catalogue(address)
+			if err != nil { log.Printf("Cannot add source: %s", err); ctx.SetStatusCode(fasthttp.StatusInternalServerError); return }
+		}
+		addedIDs = append(addedIDs, id)
+	}
+
+	var deletedIDs []int64
+	for _, address := range changes.Delete {
+		if exists, id := url_in_catalogue(address); exists { deletedIDs = append(deletedIDs, id) }
+	}
+
 	newPasswordHash, hashErr := lib.HashPassword(changes.Password)
 	if hashErr != nil { log.Printf("Cannot hash password: %s", hashErr); ctx.SetStatusCode(fasthttp.StatusInternalServerError); return }
 
@@ -237,31 +260,16 @@ func http_handler_update_compilation (ctx *fasthttp.RequestCtx) {
 	}
 	defer tx.Rollback()
 
-	if len(changes.Add) > 0 {
-		// works
-		for _, url := range changes.Add {
-			var exists bool
-			var feedid int64
-			exists, feedid = url_in_catalogue(url)
-			if !exists {
-				_, feedid, _ = add_feed_to_catalogue(url)
-			}
-			_, execerr := tx.Exec("INSERT INTO compilation_content (id, feed_id) VALUES (?, ?)", cplid, feedid)
-			if execerr != nil { log.Printf("[%s] Database error: %s\n", cplid, execerr); ctx.SetStatusCode(fasthttp.StatusInternalServerError); return }
-		}
+	for _, feedid := range addedIDs {
+		_, execerr := tx.Exec("INSERT INTO compilation_content (id, feed_id) VALUES (?, ?)", cplid, feedid)
+		if execerr != nil { log.Printf("[%s] Database error: %s", cplid, execerr); ctx.SetStatusCode(fasthttp.StatusInternalServerError); return }
 	}
-	if len(changes.Delete) > 0 {
-		// works
-		for _, url := range changes.Delete {
-			var exists bool
-			var feedid int64
-			exists, feedid = url_in_catalogue(url)
-			if exists {
-				_, execerr := tx.Exec("DELETE FROM compilation_content WHERE id = ? AND feed_id = ?", cplid, feedid)
-				if execerr != nil { log.Printf("[%s] Database error: %s\n", cplid, execerr); ctx.SetStatusCode(fasthttp.StatusInternalServerError); return }
-			}
-		}
+
+	for _, feedid := range deletedIDs {
+		_, execerr := tx.Exec("DELETE FROM compilation_content WHERE id = ? AND feed_id = ?", cplid, feedid)
+		if execerr != nil { log.Printf("[%s] Database error: %s", cplid, execerr); ctx.SetStatusCode(fasthttp.StatusInternalServerError); return }
 	}
+
 	if changes.Password != "" {
 		// works
 		_, execerr := tx.Exec("UPDATE compilation SET password = '', password_hash = ? WHERE id = ?", newPasswordHash, cplid)
@@ -373,6 +381,10 @@ func http_handler_new_compilation (ctx *fasthttp.RequestCtx) {
 	include, exclude, validFilters := encode_compilation_filters(ctx, newcpl.Filter.Include, newcpl.Filter.Exclude)
 	if !validFilters { return }
 
+	var validURLs bool
+	newcpl.Urls, validURLs = prepareFeedURLs(ctx, newcpl.Urls, k.Bool("security.allow_url_credentials"))
+	if !validURLs { return }
+
 	passwordHash, hashErr := lib.HashPassword(newcpl.Password)
 	if hashErr != nil { log.Printf("Cannot hash password: %s", hashErr); ctx.SetStatusCode(fasthttp.StatusInternalServerError); return }
 
@@ -401,7 +413,7 @@ func http_handler_new_compilation (ctx *fasthttp.RequestCtx) {
 				return
 			}
 		}
-		log.Printf("Checking %s -> %t -> %d\n", url, exists, feedid)
+		log.Printf("Checking %s -> %t -> %d\n", lib.RedactFeedURL(url), exists, feedid)
 	}
 
 	// in one swoop transaction, add the compilation and its content
@@ -520,21 +532,11 @@ func compilation_password (s string) (string, error) {
 }
 
 func add_feed_to_catalogue (s string) (bool, int64, error) {
-	// Schema may be omitted by users, so we add http by default
-	// Fetcher will later follow HTTPS redirects, so that's safe
-	if strings.ToLower(lib.FirstN(s,4)) != "http" {
-		s = "http://" + s
-	}
-
-	url, err := url.ParseRequestURI(s)
-	if err != nil {
-		log.Println(err)
-		return false, -1, err
-	}
+	u, err := lib.ParseFeedURL(s, k.Bool("security.allow_url_credentials"), true)
+	if err != nil { return false, -1, err }
 
 	_, dberr := database.Exec("INSERT INTO feed (uschema, urn, created) VALUES (?,?,?)",
-					strings.ToLower(url.Scheme),
-					strings.ToLower(url.Host)+url.EscapedPath()+func() string { if url.ForceQuery || url.RawQuery != "" { return "?"+url.RawQuery }; return "" }(),
+					u.Scheme, lib.FeedURN(u),
 					time.Now().Unix())
 	if dberr != nil {
 		log.Println(dberr)
@@ -553,20 +555,12 @@ func add_feed_to_catalogue (s string) (bool, int64, error) {
 }
 
 func url_in_catalogue (s string) (bool, int64) {
-	if strings.ToLower(lib.FirstN(s,4)) != "http" {
-		s = "http://" + s
-	}
-
-	url, err := url.ParseRequestURI(s)
-	if err != nil {
-		log.Println(err)
-		return false, -1
-	}
+	u, err := lib.ParseFeedURL(s, true, true)
+	if err != nil { return false, -1 }
 
 	var feedid int64
 	scanerr := database.QueryRow("SELECT id FROM feed WHERE uschema = ? AND urn = ?",
-					strings.ToLower(url.Scheme),
-					strings.ToLower(url.Host)+url.EscapedPath()+func() string { if url.ForceQuery || url.RawQuery != "" { return "?"+url.RawQuery }; return "" }()).Scan(&feedid)
+					u.Scheme, lib.FeedURN(u)).Scan(&feedid)
 
 	if scanerr == nil {
 		// success

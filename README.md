@@ -301,3 +301,82 @@ or rotating tokens also requires a restart; there is no config hot reload.
 Keep tokens out of Git and restrict access to the private configuration file.
 Build the API as a package (`go build ./api`) or use `make`, because admin
 authentication is now in a separate source file. No database migration is needed.
+
+### Feed URL and SSRF restrictions
+
+The API accepts HTTP/HTTPS URLs with valid hostnames/ports, without doing DNS
+lookups or network requests. A missing scheme still defaults to HTTP. Hosts are
+normalized (case, final dot, IDNA); fragments are removed, paths and query values
+are preserved. URL lists are checked before catalogue writes. In private
+`api.yaml`, userinfo credentials are opt-in:
+
+```yaml
+security:
+  allow_url_credentials: false
+```
+
+Set this to true to accept URLs such as `https://user:password@example.org/feed`.
+The setting controls new POST URLs and PATCH additions, not fetches of existing
+sources or removal of an assigned source. Credentials are stored intact in the
+feed URL, not hashed, because the fetcher needs them. Source URLs returned by
+the public-by-ID compilation GET also retain these credentials: treat the ID
+and database backups accordingly. Previously discarded credentials cannot be
+recovered; resubmit the correct URL if needed.
+
+The fetcher enforces the network policy for all sources, including existing or
+manually inserted SQLite rows. Only HTTP/HTTPS is supported. Private, loopback,
+link-local, shared, multicast, documentation and other special-purpose ranges
+are denied. IPv4-mapped IPv6 is checked as IPv4. IPv6 is limited to global
+unicast `2000::/3`, excluding special-purpose `2001::/23`, documentation,
+6to4 and obsolete 6bone ranges. The policy deliberately denies some globally
+reachable special-purpose addresses as a conservative choice. Azure WireServer
+`168.63.129.16` is also blocked. The static list is in `fetcher/security.go`;
+there is no configuration override to permit blocked ranges.
+
+Additional restrictions in private `fetcher.yaml`:
+
+```yaml
+security:
+  deny_cidrs:
+    - "203.0.113.0/24"
+    - "2001:db8::/32"
+  deny_domains:
+    - "example.org"
+    - "feeds.example.net"
+```
+
+Empty lists are allowed. Domain entries deny the domain and all subdomains,
+case-insensitively and ignoring a final dot; IDNA Unicode names are supported.
+`example.org` does not match `another-example.org`. Entries are hostnames, not
+URLs or wildcard expressions. Domain rules match the hostname in the URL, not
+CNAME names or other hostnames sharing an IP. CIDRs match resolved IPs, and can
+include the hoster's own public service addresses if those should be denied.
+Invalid restriction configuration stops startup.
+
+Each new connection resolves DNS once, checks every answer and connects to a
+checked IP literal. Mixed public/non-public answers are rejected as a whole.
+The original HTTP Host and TLS hostname/certificate checks are retained. Every
+redirect is checked, with at most nine followed redirects (ten-hop limit).
+Authorization, cookies and URL userinfo are stripped after any origin change,
+including port/scheme changes and subdomains, and are not restored on later
+hops. Same-origin authentication remains supported. Redirect Referer headers
+are removed to avoid exposing subscription query strings.
+
+The fetcher disables environment HTTP/HTTPS/ALL_PROXY proxies, because proxy
+side DNS/dialing would bypass its target-IP checks. There is no automatic
+fallback or internal-feed exception. Public servers and arbitrary HTTP(S) ports
+remain allowed; this is target restriction, not a sandbox for public services.
+Custom NAT64 prefixes or public addresses routed internally need deployment
+specific deny_cidrs/firewall rules. Existing size/time limits, feed validation,
+backoff and active=0 semantics remain in place. Userinfo and queries are masked
+in the affected API/fetcher URL logs; opaque secrets inside URL paths are not
+automatically recognizable. Requests and cached state still contain full URLs.
+
+Deploy the updated fetcher to enforce restrictions. Deploy the updated API for
+input policy and credential-preserving storage. Compiler is unchanged. No DB
+migration is needed; accepted source content and validators are kept if a fetch
+is rejected. Restrictions reload on process restart, not during a running pass.
+
+Policy references: [IANA IPv4 special-purpose registry](https://www.iana.org/assignments/iana-ipv4-special-registry/),
+[IANA IPv6 special-purpose registry](https://www.iana.org/assignments/iana-ipv6-special-registry/),
+[Azure platform endpoint](https://learn.microsoft.com/en-us/azure/virtual-network/what-is-ip-address-168-63-129-16).

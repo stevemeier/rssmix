@@ -1,7 +1,6 @@
 package main
 
 import "crypto/sha256"
-import "crypto/tls"
 import "fmt"
 import "io"
 import "io/ioutil"
@@ -47,7 +46,9 @@ type FeedStatus struct {
 }
 
 func main() {
-	if lib.HandleCLI("fetcher", version) { return }
+	if lib.HandleCLI("fetcher", version) {
+		return
+	}
 
 	log.Printf("Version: %s\n", version)
 
@@ -55,8 +56,12 @@ func main() {
 	k = lib.LoadConfig("fetcher")
 	log.Printf("Loaded config from %s\n", k.String("configfile"))
 
-	// Set TLS verification flag
-	http.DefaultTransport.(*http.Transport).TLSClientConfig = &tls.Config{InsecureSkipVerify: k.Bool("tls.insecure")}
+	policy, policyErr := newFeedNetworkPolicy(k.Get("security.deny_cidrs"), k.Get("security.deny_domains"))
+	if policyErr != nil {
+		log.Fatal(policyErr)
+	}
+	feedTransport.base = newRestrictedFeedTransport(policy, k.Bool("tls.insecure"))
+	feedTransport.redirectCheck = policy.checkRedirect
 
 	// Refresh interval
 	interval := time.Duration(k.Int("interval")) * time.Minute
@@ -129,7 +134,7 @@ func refresh_feeds(storedir string) {
 	passOK := make(map[string]bool)
 	log.Printf("%d feeds\n", len(feeds))
 
-	var netClient = &http.Client{Timeout: 2 * time.Minute, Transport: feedTransport}
+	var netClient = &http.Client{Timeout: 2 * time.Minute, Transport: feedTransport, CheckRedirect: feedTransport.redirectCheck}
 
 	for _, feed := range feeds {
 		feedid := feed.ID
@@ -181,7 +186,7 @@ func refresh_feeds(storedir string) {
 		if _, exists := passOK[host]; !exists {
 			passOK[host] = true
 		}
-		log.Printf("[%d] Checking %s", feedid, fstatus.URL)
+		log.Printf("[%d] Checking %s", feedid, lib.RedactFeedURL(fstatus.URL))
 		result, err := fetchFeed(feedTransport.store, netClient, fstatus.URL, fstatus.File)
 		if err != nil {
 			passOK[host] = false
@@ -189,7 +194,7 @@ func refresh_feeds(storedir string) {
 			if errors.As(err, &paused) {
 				log.Printf("[%d] Skipped: %s", feedid, paused)
 			} else {
-				log.Printf("[%d] Download FAILED: %s", feedid, err)
+				log.Printf("[%d] Download FAILED: %s", feedid, safeFeedError(err))
 			}
 			if stateErr := feedTransport.rememberRetry(fstatus.URL); stateErr != nil {
 				log.Fatal(stateErr)
@@ -269,7 +274,11 @@ func fetchFeed(state *stateStore, client *http.Client, address, path string) (fe
 		return result, fmt.Errorf("cannot load HTTP validators: %w", err)
 	}
 
-	req, err := http.NewRequest(http.MethodGet, address, nil)
+	parsedURL, err := lib.ParseFeedURL(address, true, false)
+	if err != nil {
+		return result, err
+	}
+	req, err := http.NewRequest(http.MethodGet, parsedURL.String(), nil)
 	if err != nil {
 		return result, err
 	}
@@ -375,13 +384,14 @@ type diskState struct {
 	Hosts   map[string]*hostState `json:"hosts"`
 }
 type hostTransport struct {
-	base   http.RoundTripper
-	mu     sync.Mutex
-	states map[string]*hostState
-	store  *stateStore
-	gap    time.Duration
-	now    func() time.Time
-	wait   func(context.Context, time.Duration) error
+	redirectCheck func(*http.Request, []*http.Request) error
+	base          http.RoundTripper
+	mu            sync.Mutex
+	states        map[string]*hostState
+	store         *stateStore
+	gap           time.Duration
+	now           func() time.Time
+	wait          func(context.Context, time.Duration) error
 }
 type hostPausedError struct {
 	Host  string

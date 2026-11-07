@@ -10,3 +10,8 @@ tls:
   insecure:
 
 workdir:
+
+# These restrictions supplement the built-in non-public IP restrictions.
+security:
+  deny_cidrs: []
+  deny_domains: []
